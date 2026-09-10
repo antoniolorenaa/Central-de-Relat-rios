@@ -1,0 +1,6 @@
+{
+  "name": "Central de Relatórios Pedagógicos",
+  "description": "Plataforma para gestão e acompanhamento institucional",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

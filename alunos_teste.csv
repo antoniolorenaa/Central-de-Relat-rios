@@ -1,0 +1,8 @@
+Rede,Escola,Serie,Turma,Status,AnoLetivo,Turno,Aluno,Matricula,E-mail do Educacional do aluno
+Motivo,Boa Viagem,Infantil 1 Regular,A,Matriculado,2026,Manhã,Aluno Exemplo 01,10001,aluno01@escola.com
+Motivo,Boa Viagem,Infantil 1 Bilíngue,B,Matriculado,2026,Manhã,Aluno Exemplo 02,10002,aluno02@escola.com
+Motivo,Casa Forte,Infantil 2 Regular,C,Matriculado,2026,Tarde,Aluno Exemplo 03,10003,aluno03@escola.com
+Motivo,Casa Forte,Infantil 2 Bilíngue,D,Matriculado,2026,Integral,Aluno Exemplo 04,10004,aluno04@escola.com
+Motivo,Caruaru,Infantil 3 Regular,A,Matriculado,2026,Manhã,Aluno Exemplo 05,10005,aluno05@escola.com
+Motivo,Petrolina,1º Ano Bilíngue,A,Cancelado,2026,Manhã,Aluno Exemplo 06,10006,aluno06@escola.com
+Motivo,Petrolina,1º Ano Regular,B,Matriculado,2026,Tarde,Aluno Exemplo 07,10007,aluno07@escola.com

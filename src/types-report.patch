@@ -1,0 +1,28 @@
+--- src/types.ts
++++ src/types.ts
+@@ -213,4 +213,26 @@
+   createdAt: number;
+ }
++
++export interface Report {
++  id: string; // typically rep_${enrollmentId}_${period}
++  studentId: string;
++  enrollmentId: string;
++  classId: string;
++  assessmentId: string;
++  matrixId: string;
++  schoolYear: string;
++  period: string;
++  strengths: string;
++  developmentAspects: string;
++  additionalInformation: string;
++  finalText: string;
++  reportStatus: 'NOT_STARTED' | 'IN_PROGRESS' | 'READY_FOR_REVIEW' | 'VALIDATED';
++  revision: number;
++  createdBy: string;
++  updatedBy: string;
++  validatedBy?: string;
++  validatedAt?: number;
++  createdAt: number;
++  updatedAt: number;
++}
