@@ -30,77 +30,91 @@ export function registerReportsRoutes(app: express.Express, db: FirebaseFirestor
       const finalState = await db.runTransaction(async (t) => {
         const doc = await t.get(reportRef);
         if (!doc.exists) throw new Error('Relatório não encontrado.');
-        const reportData = doc.data();
+        
+        const reportData = doc.data()!;
+        
+        if (reportData.reportStatus === 'VALIDATED') {
+          return reportData; // already validated
+        }
 
-        if (expectedRevision !== undefined && reportData.revision !== expectedRevision) {
+        if (expectedRevision === undefined || typeof expectedRevision !== 'number') {
+          throw new Error('Revisão esperada não fornecida ou inválida.');
+        }
+
+        if (reportData.revision !== expectedRevision) {
           throw new Error('CONCURRENCY_CONFLICT');
         }
-
-        const oldAssessmentId = reportData.assessmentId;
-        if (oldAssessmentId === newAssessmentId) {
-          throw new Error('O aluno já está nesta matriz.');
-        }
-
-        // We create the new assessment if it doesn't exist
-        const newAssDoc = await t.get(newAssRef);
-        if (!newAssDoc.exists) {
-          // fetch matrix to get required count
-          const mxSnap = await t.get(db.collection('matrices').doc(newMatrixId));
-          if (!mxSnap.exists) throw new Error('Nova matriz não encontrada.');
-          const matrix = mxSnap.data();
-
-          t.set(newAssRef, {
-            id: newAssessmentId,
-            studentId: enrollment.studentId,
-            enrollmentId,
-            classId: cls.id,
-            matrixId: newMatrixId,
-            matrixVersion: newMatrixVersion || matrix.version || 1,
-            schoolYear: cls.schoolYear,
-            period,
-            answers: {},
-            answeredCount: 0,
-            requiredCount: matrix.criteria.filter(c => c.required).length,
-            developedCount: 0,
-            inDevelopmentCount: 0,
-
-            completionPercentage: 0,
-            status: matrix.criteria.filter(c => c.required).length === 0 ? 'COMPLETED' : 'NOT_STARTED',
-            revision: 1,
-
-            createdAt: Date.now(),
-            updatedAt: Date.now(),
-            updatedBy: uid
-          });
-        }
-
-        const wasValidated = reportData.reportStatus === 'VALIDATED';
         
-        reportData.assessmentId = newAssessmentId;
-        reportData.reportStatus = (reportData.finalText || reportData.strengths) ? 'IN_PROGRESS' : 'NOT_STARTED';
-        
-        if (wasValidated) {
-          delete reportData.validatedBy;
-          delete reportData.validatedAt;
-          delete reportData.validatedAssessmentRevision;
-          delete reportData.validatedMatrixId;
-          delete reportData.validatedMatrixVersion;
-
-          const auditRef = db.collection('auditLogs').doc();
-          t.set(auditRef, {
-            action: 'REPORT_INVALIDATED_BY_MATRIX_TRANSFER',
-            reportId: reportData.id,
-            oldAssessmentId,
-            newAssessmentId,
-            changedBy: uid,
-            changedAt: Date.now()
-          });
+        if (!reportData.assessmentId) {
+          throw new Error('Relatório sem avaliação vinculada.');
         }
 
+        if (assessmentId && reportData.assessmentId !== assessmentId) {
+          throw new Error('O ID de avaliação diverge do vinculado ao relatório.');
+        }
+
+        const realAssessmentId = reportData.assessmentId;
+        
+        const assDoc = await t.get(db.collection('assessments').doc(realAssessmentId));
+        if (!assDoc.exists) {
+           throw new Error('Avaliação vinculada inexistente.');
+        }
+        
+        const assData = assDoc.data()!;
+
+        // CONFERÊNCIA DOS VÍNCULOS
+        if (
+          assData.enrollmentId !== enrollmentId ||
+          assData.studentId !== enrollment.studentId ||
+          assData.classId !== enrollment.classId ||
+          assData.schoolYear !== enrollment.schoolYear ||
+          assData.period !== period
+        ) {
+           throw new Error('Vínculos inconsistentes entre avaliação, matrícula e relatório.');
+        }
+
+        if (assData.status !== 'COMPLETED') {
+          throw new Error('INVALID_ASSESSMENT_STATUS');
+        }
+
+        // Save pending changes before validation
+        if (strengths !== undefined && typeof strengths === 'string') reportData.strengths = strengths;
+        if (developmentAspects !== undefined && typeof developmentAspects === 'string') reportData.developmentAspects = developmentAspects;
+        if (additionalInformation !== undefined && typeof additionalInformation === 'string') reportData.additionalInformation = additionalInformation;
+        if (finalText !== undefined && typeof finalText === 'string') reportData.finalText = finalText;
+
+        if (!reportData.finalText?.trim()) {
+          throw new Error('MISSING_FINAL_TEXT');
+        }
+        
+        // Se matriz também estiver divergente na mesma base, devemos rejeitar.
+        if (reportData.matrixId && reportData.matrixId !== assData.matrixId) {
+          throw new Error('MATRIX_MISMATCH');
+        }
+
+        reportData.reportStatus = 'VALIDATED';
+        reportData.validatedBy = uid;
+        reportData.validatedAt = Date.now();
+        reportData.validatedAssessmentRevision = assData.revision;
+        reportData.validatedMatrixId = assData.matrixId;
+        reportData.validatedMatrixVersion = assData.matrixVersion;
         reportData.revision = (reportData.revision || 0) + 1;
         reportData.updatedAt = Date.now();
         reportData.updatedBy = uid;
+
         t.set(reportRef, reportData);
+        
+        // Write audit log
+        const auditRef = db.collection('auditLogs').doc();
+        t.set(auditRef, {
+          action: 'REPORT_VALIDATED',
+          reportId: reportData.id,
+          validatedBy: uid,
+          validatedAt: Date.now(),
+          assessmentRevision: assData.revision,
+          matrixId: assData.matrixId || '',
+          matrixVersion: assData.matrixVersion || 1
+        });
 
         return reportData;
       });
@@ -274,7 +288,7 @@ export function registerReportsRoutes(app: express.Express, db: FirebaseFirestor
       const { period, enrollmentId, assessmentId, expectedRevision, strengths, developmentAspects, additionalInformation, finalText } = req.body;
       const uid = (req as any).user.uid;
       
-      if (!period || !enrollmentId || !assessmentId) return res.status(400).json({ error: 'Parâmetros insuficientes.' });
+      if (!period || !enrollmentId) return res.status(400).json({ error: 'Parâmetros insuficientes.' });
 
       const expectedReportId = `rep_${enrollmentId}_${period}`;
       if (reportId !== expectedReportId) return res.status(400).json({ error: 'ID de relatório incompatível.' });
@@ -301,101 +315,66 @@ export function registerReportsRoutes(app: express.Express, db: FirebaseFirestor
           return reportData; // already validated
         }
 
-        if (expectedRevision !== undefined && reportData.revision !== expectedRevision) {
+        if (expectedRevision === undefined || typeof expectedRevision !== 'number') {
+          throw new Error('Revisão esperada não fornecida ou inválida.');
+        }
+
+        if (reportData.revision !== expectedRevision) {
           throw new Error('CONCURRENCY_CONFLICT');
         }
         
+        if (!reportData.assessmentId) {
+          throw new Error('Relatório sem avaliação vinculada.');
+        }
 
-        let assDoc = await t.get(db.collection('assessments').doc(assessmentId));
-        let assStatus = 'NOT_STARTED';
-        let assRevision = 1;
-        let assMatrixId = '';
-        let assMatrixVersion = 1;
+        if (assessmentId && reportData.assessmentId !== assessmentId) {
+          throw new Error('O ID de avaliação diverge do vinculado ao relatório.');
+        }
+
+        const realAssessmentId = reportData.assessmentId;
         
+        const assDoc = await t.get(db.collection('assessments').doc(realAssessmentId));
         if (!assDoc.exists) {
-           // Maybe requiredCount is 0, so no one clicked answers yet. 
-           // We need to fetch the matrix to check.
-           const matrixSnap = await t.get(db.collection('matrices').where('status', '==', 'PUBLISHED').where('gradeLevelId', '==', cls.gradeLevelId).limit(1));
-           // Let's just say we need to reject unless we know for sure. 
-           // But wait, we have assessmentId parameter which contains matrixId.
-           const parts = assessmentId.split('_');
-           const matId = parts[2];
-           if (matId) {
-             const mx = await t.get(db.collection('matrices').doc(matId));
-             if (mx.exists) {
-               const reqCount = mx.data().criteria.filter(c => c.required).length;
-               if (reqCount === 0) {
-                 assStatus = 'COMPLETED';
-                 assMatrixId = matId;
-                 assMatrixVersion = mx.data().version || 1;
-                 
-                 // Create it!
-                 t.set(db.collection('assessments').doc(assessmentId), {
-                    id: assessmentId,
-                    studentId: enrollment.studentId,
-                    enrollmentId,
-                    classId: cls.id,
-                    matrixId: matId,
-                    matrixVersion: assMatrixVersion,
-                    schoolYear: cls.schoolYear,
-                    period,
-                    answers: {},
-                    answeredCount: 0,
-                    requiredCount: 0,
-                    developedCount: 0,
-                    inDevelopmentCount: 0,
-                    completionPercentage: 0,
-                    status: 'COMPLETED',
-                    revision: 1,
-                    createdAt: Date.now(),
-                    updatedAt: Date.now(),
-                    updatedBy: uid
-                 });
-               }
-             }
-           }
-           
-           if (assStatus !== 'COMPLETED') {
-             throw new Error('INVALID_ASSESSMENT_STATUS');
-           }
-        } else {
-          const assData = assDoc.data();
-          assStatus = assData.status;
-          assRevision = assData.revision;
-          assMatrixId = assData.matrixId;
-          assMatrixVersion = assData.matrixVersion;
+           throw new Error('Avaliação vinculada inexistente.');
         }
-        
-        if (assStatus !== 'COMPLETED') {
-          throw new Error('INVALID_ASSESSMENT_STATUS');
-        }
-
         
         const assData = assDoc.data()!;
+
+        // CONFERÊNCIA DOS VÍNCULOS
+        if (
+          assData.enrollmentId !== enrollmentId ||
+          assData.studentId !== enrollment.studentId ||
+          assData.classId !== enrollment.classId ||
+          assData.schoolYear !== enrollment.schoolYear ||
+          assData.period !== period
+        ) {
+           throw new Error('Vínculos inconsistentes entre avaliação, matrícula e relatório.');
+        }
+
         if (assData.status !== 'COMPLETED') {
           throw new Error('INVALID_ASSESSMENT_STATUS');
         }
-        
+
         // Save pending changes before validation
-        if (strengths !== undefined) reportData.strengths = strengths;
-        if (developmentAspects !== undefined) reportData.developmentAspects = developmentAspects;
-        if (additionalInformation !== undefined) reportData.additionalInformation = additionalInformation;
-        if (finalText !== undefined) reportData.finalText = finalText;
+        if (strengths !== undefined && typeof strengths === 'string') reportData.strengths = strengths;
+        if (developmentAspects !== undefined && typeof developmentAspects === 'string') reportData.developmentAspects = developmentAspects;
+        if (additionalInformation !== undefined && typeof additionalInformation === 'string') reportData.additionalInformation = additionalInformation;
+        if (finalText !== undefined && typeof finalText === 'string') reportData.finalText = finalText;
 
         if (!reportData.finalText?.trim()) {
           throw new Error('MISSING_FINAL_TEXT');
         }
         
-        if (reportData.matrixId && assData.matrixId && reportData.matrixId !== assData.matrixId) {
+        if (reportData.matrixId && reportData.matrixId !== assData.matrixId) {
           throw new Error('MATRIX_MISMATCH');
         }
 
         reportData.reportStatus = 'VALIDATED';
         reportData.validatedBy = uid;
         reportData.validatedAt = Date.now();
-        reportData.validatedAssessmentRevision = assRevision;
-        reportData.validatedMatrixId = assMatrixId;
-        reportData.validatedMatrixVersion = assMatrixVersion;
+        reportData.validatedAssessmentRevision = assData.revision;
+        reportData.validatedMatrixId = assData.matrixId;
+        reportData.validatedMatrixVersion = assData.matrixVersion;
         reportData.revision = (reportData.revision || 0) + 1;
         reportData.updatedAt = Date.now();
         reportData.updatedBy = uid;
@@ -409,9 +388,9 @@ export function registerReportsRoutes(app: express.Express, db: FirebaseFirestor
           reportId: reportData.id,
           validatedBy: uid,
           validatedAt: Date.now(),
-          assessmentRevision: assRevision,
-          matrixId: assMatrixId || '',
-          matrixVersion: assMatrixVersion || 1
+          assessmentRevision: assData.revision,
+          matrixId: assData.matrixId || '',
+          matrixVersion: assData.matrixVersion || 1
         });
 
         return reportData;

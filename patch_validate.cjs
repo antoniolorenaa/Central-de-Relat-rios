@@ -1,34 +1,7 @@
 const fs = require('fs');
 let code = fs.readFileSync('src/server-reports.ts', 'utf8');
 
-const regex = /app\.post\('\/api\/academic\/reports\/:reportId\/validate'[\s\S]*?res\.json\(\{ success: true, report: finalState \}\);/m;
-
-const match = code.match(regex);
-if (match) {
-  const newLogic = `app.post('/api/academic/reports/:reportId/validate', authenticate, requireCoordinationOrMaster, async (req, res) => {
-    try {
-      const { reportId } = req.params;
-      const { period, enrollmentId, assessmentId, expectedRevision, strengths, developmentAspects, additionalInformation, finalText } = req.body;
-      const uid = (req as any).user.uid;
-      
-      if (!period || !enrollmentId) return res.status(400).json({ error: 'Parâmetros insuficientes.' });
-
-      const expectedReportId = \`rep_\${enrollmentId}_\${period}\`;
-      if (reportId !== expectedReportId) return res.status(400).json({ error: 'ID de relatório incompatível.' });
-
-      const reportRef = db.collection('reports').doc(reportId);
-
-      const enrollmentSnap = await db.collection('enrollments').doc(enrollmentId).get();
-      if (!enrollmentSnap.exists) return res.status(404).json({ error: 'Matrícula não encontrada.' });
-      const enrollment = enrollmentSnap.data()!;
-
-      const classSnap = await db.collection('classes').doc(enrollment.classId).get();
-      const cls = classSnap.data()!;
-
-      const hasAccess = await checkScope(uid, cls);
-      if (!hasAccess) return res.status(403).json({ error: 'Acesso negado a este aluno.' });
-
-      const finalState = await db.runTransaction(async (t) => {
+const replacement = `      const finalState = await db.runTransaction(async (t) => {
         const doc = await t.get(reportRef);
         if (!doc.exists) throw new Error('Relatório não encontrado.');
         
@@ -88,6 +61,7 @@ if (match) {
           throw new Error('MISSING_FINAL_TEXT');
         }
         
+        // Se matriz também estiver divergente na mesma base, devemos rejeitar.
         if (reportData.matrixId && reportData.matrixId !== assData.matrixId) {
           throw new Error('MATRIX_MISMATCH');
         }
@@ -117,13 +91,10 @@ if (match) {
         });
 
         return reportData;
-      });
+      });`;
 
-      res.json({ success: true, report: finalState });`;
-  
-  code = code.replace(regex, newLogic);
-  fs.writeFileSync('src/server-reports.ts', code);
-  console.log("Patched!");
-} else {
-  console.log("Match not found!");
-}
+const matchRegex = /      const finalState = await db\.runTransaction\(async \(t\) => \{[\s\S]*?        return reportData;\n      \}\);/m;
+
+code = code.replace(matchRegex, replacement);
+
+fs.writeFileSync('src/server-reports.ts', code);
