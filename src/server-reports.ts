@@ -3,7 +3,7 @@ import { getFirestore } from 'firebase-admin/firestore';
 
 export function registerReportsRoutes(app: express.Express, db: FirebaseFirestore.Firestore, authenticate: any) {
   // Transfer Report to a new Matrix
-  app.post('/api/academic/reports/:reportId/transfer', authenticate, async (req, res) => {
+    app.post('/api/academic/reports/:reportId/transfer', authenticate, async (req, res) => {
     try {
       const { reportId } = req.params;
       const { enrollmentId, period, newMatrixId, newMatrixVersion, expectedRevision } = req.body;
@@ -17,15 +17,14 @@ export function registerReportsRoutes(app: express.Express, db: FirebaseFirestor
       const reportRef = db.collection('reports').doc(reportId);
       const enrollmentSnap = await db.collection('enrollments').doc(enrollmentId).get();
       if (!enrollmentSnap.exists) return res.status(404).json({ error: 'Matrícula não encontrada.' });
-      const enrollment = enrollmentSnap.data();
+      const enrollment = enrollmentSnap.data()!;
 
       const classSnap = await db.collection('classes').doc(enrollment.classId).get();
-      const cls = classSnap.data();
+      const cls = classSnap.data()!;
       const hasAccess = await checkScope(uid, cls);
       if (!hasAccess) return res.status(403).json({ error: 'Acesso negado a este aluno.' });
 
       const newAssessmentId = `ass_${enrollmentId}_${newMatrixId}_${period}`;
-      const newAssRef = db.collection('assessments').doc(newAssessmentId);
 
       const finalState = await db.runTransaction(async (t) => {
         const doc = await t.get(reportRef);
@@ -34,93 +33,47 @@ export function registerReportsRoutes(app: express.Express, db: FirebaseFirestor
         const reportData = doc.data()!;
         
         if (reportData.reportStatus === 'VALIDATED') {
-          return reportData; // already validated
+          throw new Error('Relatórios já validados não podem ser transferidos.');
         }
 
-        if (expectedRevision === undefined || typeof expectedRevision !== 'number') {
-          throw new Error('Revisão esperada não fornecida ou inválida.');
-        }
-
-        if (reportData.revision !== expectedRevision) {
+        if (expectedRevision !== undefined && reportData.revision !== expectedRevision) {
           throw new Error('CONCURRENCY_CONFLICT');
         }
-        
-        if (!reportData.assessmentId) {
-          throw new Error('Relatório sem avaliação vinculada.');
-        }
 
-        if (assessmentId && reportData.assessmentId !== assessmentId) {
-          throw new Error('O ID de avaliação diverge do vinculado ao relatório.');
-        }
+        const oldAssessmentId = reportData.assessmentId;
 
-        const realAssessmentId = reportData.assessmentId;
-        
-        const assDoc = await t.get(db.collection('assessments').doc(realAssessmentId));
-        if (!assDoc.exists) {
-           throw new Error('Avaliação vinculada inexistente.');
-        }
-        
-        const assData = assDoc.data()!;
-
-        // CONFERÊNCIA DOS VÍNCULOS
-        if (
-          assData.enrollmentId !== enrollmentId ||
-          assData.studentId !== enrollment.studentId ||
-          assData.classId !== enrollment.classId ||
-          assData.schoolYear !== enrollment.schoolYear ||
-          assData.period !== period
-        ) {
-           throw new Error('Vínculos inconsistentes entre avaliação, matrícula e relatório.');
-        }
-
-        if (assData.status !== 'COMPLETED') {
-          throw new Error('INVALID_ASSESSMENT_STATUS');
-        }
-
-        // Save pending changes before validation
-        if (strengths !== undefined && typeof strengths === 'string') reportData.strengths = strengths;
-        if (developmentAspects !== undefined && typeof developmentAspects === 'string') reportData.developmentAspects = developmentAspects;
-        if (additionalInformation !== undefined && typeof additionalInformation === 'string') reportData.additionalInformation = additionalInformation;
-        if (finalText !== undefined && typeof finalText === 'string') reportData.finalText = finalText;
-
-        if (!reportData.finalText?.trim()) {
-          throw new Error('MISSING_FINAL_TEXT');
-        }
-        
-        // Se matriz também estiver divergente na mesma base, devemos rejeitar.
-        if (reportData.matrixId && reportData.matrixId !== assData.matrixId) {
-          throw new Error('MATRIX_MISMATCH');
-        }
-
-        reportData.reportStatus = 'VALIDATED';
-        reportData.validatedBy = uid;
-        reportData.validatedAt = Date.now();
-        reportData.validatedAssessmentRevision = assData.revision;
-        reportData.validatedMatrixId = assData.matrixId;
-        reportData.validatedMatrixVersion = assData.matrixVersion;
+        reportData.assessmentId = newAssessmentId;
+        reportData.matrixId = newMatrixId;
+        reportData.matrixVersion = newMatrixVersion;
         reportData.revision = (reportData.revision || 0) + 1;
         reportData.updatedAt = Date.now();
         reportData.updatedBy = uid;
 
         t.set(reportRef, reportData);
-        
+
         // Write audit log
         const auditRef = db.collection('auditLogs').doc();
         t.set(auditRef, {
-          action: 'REPORT_VALIDATED',
+          action: 'REPORT_TRANSFERRED',
           reportId: reportData.id,
-          validatedBy: uid,
-          validatedAt: Date.now(),
-          assessmentRevision: assData.revision,
-          matrixId: assData.matrixId || '',
-          matrixVersion: assData.matrixVersion || 1
+          studentId: enrollment.studentId,
+          classId: enrollment.classId,
+          oldAssessmentId: oldAssessmentId || null,
+          newAssessmentId,
+          newMatrixId,
+          newMatrixVersion,
+          uid,
+          timestamp: Date.now()
         });
 
         return reportData;
       });
 
       res.json({ success: true, report: finalState });
-    } catch (e) {
+    } catch (e: any) {
+      if (e.message === 'CONCURRENCY_CONFLICT') return res.status(409).json({ error: 'Este relatório foi atualizado por outro usuário. Recarregue para continuar.' });
+      if (e.message === 'Relatórios já validados não podem ser transferidos.') return res.status(400).json({ error: e.message });
+      if (e.message === 'Relatório não encontrado.') return res.status(404).json({ error: e.message });
       console.error(e);
       res.status(500).json({ error: e.message });
     }
@@ -356,10 +309,22 @@ export function registerReportsRoutes(app: express.Express, db: FirebaseFirestor
         }
 
         // Save pending changes before validation
-        if (strengths !== undefined && typeof strengths === 'string') reportData.strengths = strengths;
-        if (developmentAspects !== undefined && typeof developmentAspects === 'string') reportData.developmentAspects = developmentAspects;
-        if (additionalInformation !== undefined && typeof additionalInformation === 'string') reportData.additionalInformation = additionalInformation;
-        if (finalText !== undefined && typeof finalText === 'string') reportData.finalText = finalText;
+        if (strengths !== undefined) {
+          if (typeof strengths !== 'string') throw new Error('INVALID_TEXT_FIELD');
+          reportData.strengths = strengths;
+        }
+        if (developmentAspects !== undefined) {
+          if (typeof developmentAspects !== 'string') throw new Error('INVALID_TEXT_FIELD');
+          reportData.developmentAspects = developmentAspects;
+        }
+        if (additionalInformation !== undefined) {
+          if (typeof additionalInformation !== 'string') throw new Error('INVALID_TEXT_FIELD');
+          reportData.additionalInformation = additionalInformation;
+        }
+        if (finalText !== undefined) {
+          if (typeof finalText !== 'string') throw new Error('INVALID_TEXT_FIELD');
+          reportData.finalText = finalText;
+        }
 
         if (!reportData.finalText?.trim()) {
           throw new Error('MISSING_FINAL_TEXT');
@@ -401,6 +366,15 @@ export function registerReportsRoutes(app: express.Express, db: FirebaseFirestor
       if (e.message === 'CONCURRENCY_CONFLICT') return res.status(409).json({ error: 'Este relatório foi atualizado por outro usuário. Recarregue para continuar.' });
       if (e.message === 'INVALID_ASSESSMENT_STATUS') return res.status(400).json({ error: 'Avaliação precisa estar COMPLETED.' });
       if (e.message === 'MISSING_FINAL_TEXT') return res.status(400).json({ error: 'Parecer não pode estar vazio.' });
+      if (e.message === 'INVALID_TEXT_FIELD') return res.status(400).json({ error: 'Os campos textuais devem ser strings.' });
+      if (e.message === 'O ID de avaliação diverge do vinculado ao relatório.') return res.status(400).json({ error: e.message });
+      if (e.message === 'Vínculos inconsistentes entre avaliação, matrícula e relatório.') return res.status(400).json({ error: e.message });
+      if (e.message === 'MATRIX_MISMATCH') return res.status(400).json({ error: 'A matriz do relatório diverge da avaliação.' });
+      if (e.message === 'Revisão esperada não fornecida ou inválida.') return res.status(400).json({ error: e.message });
+      if (e.message === 'Avaliação vinculada inexistente.') return res.status(404).json({ error: e.message });
+      if (e.message === 'Relatório sem avaliação vinculada.') return res.status(400).json({ error: e.message });
+      if (e.message === 'Relatório não encontrado.') return res.status(404).json({ error: e.message });
+      console.error(e);
       res.status(500).json({ error: e.message });
     }
   });
