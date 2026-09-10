@@ -166,8 +166,13 @@ export function registerAssessmentRoutes(app: express.Express, db: FirebaseFires
       // Run Transaction for Concurrency and Counters
       const assessmentRef = db.collection('assessments').doc(assessmentId);
 
+      
+      const reportId = `rep_${enrollmentId}_${period}`;
+      const reportRef = db.collection('reports').doc(reportId);
+
       const finalState = await db.runTransaction(async (t) => {
         const doc = await t.get(assessmentRef);
+        const reportDoc = await t.get(reportRef);
         let assessmentData: any;
 
         if (doc.exists) {
@@ -178,7 +183,7 @@ export function registerAssessmentRoutes(app: express.Express, db: FirebaseFires
             throw new Error('CONCURRENCY_CONFLICT');
           }
           
-          assessmentData.revision = (assessmentData.revision || 0) + 1;
+          // DO NOT increment revision here. Wait until idempotency check.
         } else {
           // Create new assessment
           assessmentData = {
@@ -197,7 +202,7 @@ export function registerAssessmentRoutes(app: express.Express, db: FirebaseFires
             inDevelopmentCount: 0,
             completionPercentage: 0,
             status: 'NOT_STARTED',
-            revision: 1,
+            revision: 0, // Will be incremented to 1 below
             createdAt: Date.now(),
             updatedAt: Date.now(),
             updatedBy: uid
@@ -211,6 +216,9 @@ export function registerAssessmentRoutes(app: express.Express, db: FirebaseFires
         if (oldAnswer === answer) {
           return assessmentData; // No actual change, abort transaction silently
         }
+
+        // Apply change and increment revision
+        assessmentData.revision = (assessmentData.revision || 0) + 1;
 
         if (answer === 'D' || answer === 'ED') {
           assessmentData.answers[criterionId] = answer;
@@ -243,10 +251,6 @@ export function registerAssessmentRoutes(app: express.Express, db: FirebaseFires
 
 
         if (assessmentData.requiredCount === 0 && assessmentData.answeredCount === 0) {
-          // If there are no required criteria, it is effectively COMPLETED by default, 
-          // but we might want to let the teacher at least interact with it. 
-          // Actually, the user requested: "sem depender acidentalmente de preencher ou limpar um opcional."
-          // So if requiredCount is 0, it should be COMPLETED even with 0 answers.
           assessmentData.status = 'COMPLETED';
         } else if (assessmentData.answeredCount === 0) {
           assessmentData.status = 'NOT_STARTED';
@@ -259,19 +263,14 @@ export function registerAssessmentRoutes(app: express.Express, db: FirebaseFires
 
         assessmentData.updatedAt = Date.now();
         assessmentData.updatedBy = uid;
-        t.set(assessmentRef, assessmentData);
-
+        
         // SYNC REPORT STATUS
-        const reportId = `rep_${enrollmentId}_${period}`;
-        const reportRef = db.collection('reports').doc(reportId);
-        const reportDoc = await t.get(reportRef);
-        
-        
         if (reportDoc.exists) {
-          const reportData = reportDoc.data();
+          const reportData = reportDoc.data()!;
           if (reportData.assessmentId && reportData.assessmentId !== assessmentId) {
             // The report has been transferred to a different assessment matrix.
             // Do not sync status.
+            t.set(assessmentRef, assessmentData);
             return assessmentData;
           }
 
@@ -322,10 +321,12 @@ export function registerAssessmentRoutes(app: express.Express, db: FirebaseFires
           }
         }
 
+        // Set assessment at the end of transaction along with report and audit
+        t.set(assessmentRef, assessmentData);
+
         return assessmentData;
       });
-
-      res.json({ success: true, assessment: finalState });
+res.json({ success: true, assessment: finalState });
     } catch (e: any) {
       if (e.message === 'CONCURRENCY_CONFLICT') {
         return res.status(409).json({ error: 'Esta avaliação foi atualizada por outro usuário. Recarregue para continuar.' });

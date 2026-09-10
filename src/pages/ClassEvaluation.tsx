@@ -157,7 +157,8 @@ export function ClassEvaluation() {
           period,
           matrixId: currentMatrix.id,
           matrixVersion: currentMatrix.version,
-          expectedRevision
+          expectedRevision,
+          enrollmentId
         })
       });
       

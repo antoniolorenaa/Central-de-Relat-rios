@@ -87,6 +87,8 @@ export function registerMatricesRoutes(app: express.Express, db: FirebaseFiresto
         return k.toLowerCase().trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
       }
 
+const errors = [];
+
       rows.forEach((row, idx) => {
         const normalizedRow = {};
         for (const k of Object.keys(row)) {
@@ -99,7 +101,10 @@ export function registerMatricesRoutes(app: express.Express, db: FirebaseFiresto
         const orderRaw = normalizedRow['ordem']?.toString();
         const reqRaw = normalizedRow['obrigatorio']?.toString();
         
-        if (!category || !codeValue || !objective) return;
+        if (!category || !codeValue || !objective) {
+          errors.push(`Linha ${idx + 2}: Faltam dados obrigatórios (Categoria, Código ou Objetivo).`);
+          return;
+        }
 
         categories.add(category);
         
@@ -121,6 +126,10 @@ export function registerMatricesRoutes(app: express.Express, db: FirebaseFiresto
           active: true
         });
       });
+
+      if (errors.length > 0) {
+        return res.status(400).json({ error: 'Importação falhou devido a erros nas seguintes linhas:\n' + errors.join('\n') });
+      }
 
       if (criteria.length === 0) {
         return res.status(400).json({ error: 'O arquivo não contém objetivos válidos. Verifique se os cabeçalhos são: Categoria, Código, Objetivo, Ordem, Obrigatório.' });
