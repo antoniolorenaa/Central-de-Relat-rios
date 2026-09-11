@@ -53,14 +53,34 @@ export function registerReportsRoutes(app: express.Express, db: FirebaseFirestor
         }
 
         // Compatibility check
-        if (!matrixData.schoolYears || !matrixData.schoolYears.includes(enrollment.schoolYear)) {
+        if (matrixData.schoolYear !== enrollment.schoolYear) {
           throw new Error('Matriz incompatível com o ano letivo da matrícula.');
         }
-        if (!matrixData.periods || !matrixData.periods.includes(period)) {
+        if (matrixData.period !== period) {
           throw new Error('Matriz incompatível com o período.');
+        }
+        if (matrixData.gradeLevelId !== cls.gradeLevelId) {
+          throw new Error('Matriz incompatível com a série da turma.');
+        }
+        if (matrixData.brandId !== 'GLOBAL' && matrixData.brandId !== cls.brandId) {
+          throw new Error('Matriz incompatível com a marca da turma.');
+        }
+        if (matrixData.programId !== 'ALL' && matrixData.programId !== cls.programId) {
+          throw new Error('Matriz incompatível com o programa da turma.');
         }
 
         const actualMatrixVersion = matrixData.version || 1;
+
+        // Check report links
+        if (
+          reportData.enrollmentId !== enrollmentId ||
+          reportData.studentId !== enrollment.studentId ||
+          reportData.classId !== enrollment.classId ||
+          reportData.period !== period ||
+          reportData.schoolYear !== enrollment.schoolYear
+        ) {
+          throw new Error('Relatório com vínculos corrompidos.');
+        }
 
         // --- 3. Read Target Assessment ---
         const newAssessmentRef = db.collection('assessments').doc(newAssessmentId);
@@ -69,9 +89,13 @@ export function registerReportsRoutes(app: express.Express, db: FirebaseFirestor
 
         if (newAssessmentDoc.exists) {
            assessmentData = newAssessmentDoc.data()!;
-           if (assessmentData.enrollmentId !== enrollmentId || 
+           if (assessmentData.enrollmentId !== enrollmentId ||
+               assessmentData.studentId !== enrollment.studentId ||
+               assessmentData.classId !== enrollment.classId ||
+               assessmentData.schoolYear !== enrollment.schoolYear ||
                assessmentData.period !== period || 
-               assessmentData.matrixId !== newMatrixId) {
+               assessmentData.matrixId !== newMatrixId ||
+               assessmentData.matrixVersion !== actualMatrixVersion) {
                throw new Error('Avaliação de destino com vínculos corrompidos.');
            }
         } else {
@@ -156,6 +180,10 @@ export function registerReportsRoutes(app: express.Express, db: FirebaseFirestor
       if (e.message === 'Matriz incompatível com o ano letivo da matrícula.') return res.status(400).json({ error: e.message });
       if (e.message === 'Matriz incompatível com o período.') return res.status(400).json({ error: e.message });
       if (e.message === 'Matriz de destino não está publicada.') return res.status(400).json({ error: e.message });
+      if (e.message === 'Matriz incompatível com a série da turma.') return res.status(400).json({ error: e.message });
+      if (e.message === 'Matriz incompatível com a marca da turma.') return res.status(400).json({ error: e.message });
+      if (e.message === 'Matriz incompatível com o programa da turma.') return res.status(400).json({ error: e.message });
+      if (e.message === 'Relatório com vínculos corrompidos.') return res.status(400).json({ error: e.message });
       if (e.message === 'Avaliação de destino com vínculos corrompidos.') return res.status(400).json({ error: e.message });
       if (e.message === 'Matriz de destino não encontrada.') return res.status(404).json({ error: e.message });
       if (e.message === 'Relatório não encontrado.') return res.status(404).json({ error: e.message });
