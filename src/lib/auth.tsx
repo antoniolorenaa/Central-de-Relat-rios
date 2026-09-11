@@ -94,7 +94,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setProfile(newUser);
       
     } catch (err: any) {
-      setError(err.message);
+      if (err?.code === 'resource-exhausted' || err?.code === 8 || err?.message?.includes('RESOURCE_EXHAUSTED') || err?.message?.includes('Quota exceeded')) {
+        setError('Limite de cota do Firestore atingido (RESOURCE_EXHAUSTED). A cota diária gratuita do Firebase será restabelecida no próximo ciclo diário.');
+      } else {
+        setError(err.message);
+      }
       setProfile(null);
     } finally {
       setLoading(false);
@@ -150,7 +154,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       setProfile(userDoc as UserProfile);
     } catch (err: any) {
-      setError(err.message);
+      if (err?.code === 'resource-exhausted' || err?.code === 8 || err?.message?.includes('RESOURCE_EXHAUSTED') || err?.message?.includes('Quota exceeded')) {
+        setError('Limite de cota do Firestore atingido (RESOURCE_EXHAUSTED). A cota diária gratuita do Firebase será restabelecida no próximo ciclo diário.');
+      } else {
+        setError(err.message);
+      }
     } finally {
       setLoading(false);
     }

@@ -215,11 +215,12 @@ export function Imports() {
                           className="hidden"
                           onChange={handleFileChange}
                         />
-                        <Button asChild variant="outline" className="cursor-pointer">
-                          <label htmlFor="file-upload">
-                            Selecionar arquivo
-                          </label>
-                        </Button>
+                        <label
+                          htmlFor="file-upload"
+                          className="cursor-pointer inline-flex items-center justify-center rounded-lg font-medium transition-colors border border-gray-300 text-gray-700 hover:bg-gray-50 h-10 px-4 py-2 text-sm"
+                        >
+                          Selecionar arquivo
+                        </label>
                       </div>
                     </>
                   ) : (

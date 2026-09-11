@@ -9,14 +9,32 @@ export function Login() {
 
   // If user is authenticated in Firebase but profile sync failed / doesn't exist
   if (user && !profile && !loading) {
+    const isQuotaError = error?.includes('RESOURCE_EXHAUSTED') || error?.includes('cota') || error?.includes('Quota');
+
     return (
       <div className="min-h-screen bg-gray-50 flex flex-col justify-center items-center p-4">
         <Card className="w-full max-w-md">
           <CardContent className="pt-8 pb-8 text-center flex flex-col items-center">
-            <h2 className="text-xl font-semibold text-[#0f172a] mb-4">Acesso Restrito</h2>
+            <h2 className="text-xl font-semibold text-[#0f172a] mb-4">
+              {isQuotaError ? 'Cota do Firestore Excedida' : 'Acesso Restrito'}
+            </h2>
             <p className="text-gray-600 mb-6 leading-relaxed">
               {error || 'Seu acesso à Central de Relatórios Pedagógicos ainda não foi liberado. Entre em contato com a administração responsável.'}
             </p>
+            {isQuotaError && (
+              <div className="mb-6 p-3 bg-amber-50 border border-amber-200 rounded-md text-xs text-amber-800 text-left">
+                <p className="font-semibold mb-1">Cota diária gratuita atingida:</p>
+                <p className="mb-2">A cota gratuita (Spark) do Firestore é renovada diariamente. Para aumentar os limites sem interrupções, você pode atualizar o plano no console do Firebase.</p>
+                <a
+                  href="https://console.firebase.google.com/project/gen-lang-client-0443933607/firestore/databases/ai-studio-77b98651-eb46-4ef0-aac8-0ad5067fb9fd/data?openUpgradeDialog=true"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-blue-600 underline font-medium hover:text-blue-800"
+                >
+                  Abrir Firebase Console para Upgrade
+                </a>
+              </div>
+            )}
             <div className="flex flex-col w-full gap-3">
               <Button onClick={() => bootstrap()} variant="outline" className="w-full">
                 Tentar Configuração Mestre

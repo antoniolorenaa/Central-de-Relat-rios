@@ -50,23 +50,44 @@ async function startServer() {
     }
   };
 
+  // Cache for users to prevent hammering Firestore and burning daily read quotas
+  const userCache = new Map<string, { data: any; timestamp: number }>();
+  const USER_CACHE_TTL = 60 * 1000; // 60 seconds
+
   // Middleware to enforce MASTER role
   const requireMaster = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
     const uid = (req as any).user.uid;
     try {
-      const userSnap = await db.collection('users').doc(uid).get();
-      if (!userSnap.exists) {
-        res.status(403).json({ error: 'Você não possui permissão para acessar esta área.' });
-        return;
+      const now = Date.now();
+      const cached = userCache.get(uid);
+      let userData: any;
+      if (cached && now - cached.timestamp < USER_CACHE_TTL) {
+        userData = cached.data;
+      } else {
+        const userSnap = await db.collection('users').doc(uid).get();
+        if (!userSnap.exists) {
+          res.status(403).json({ error: 'Você não possui permissão para acessar esta área.' });
+          return;
+        }
+        userData = userSnap.data();
+        userCache.set(uid, { data: userData, timestamp: now });
       }
-      const userData = userSnap.data();
+
       if (userData?.role !== 'MASTER' || !userData?.active) {
         res.status(403).json({ error: 'Você não possui permissão para acessar esta área.' });
         return;
       }
       next();
-    } catch (error) {
-      console.error("DEBUG ERROR:", error); res.status(500).json({ error: 'Não foi possível concluir a operação. Tente novamente.' });
+    } catch (error: any) {
+      console.error("DEBUG ERROR:", error);
+      if (error?.code === 8 || error?.message?.includes('RESOURCE_EXHAUSTED') || error?.message?.includes('Quota exceeded')) {
+        res.status(429).json({
+          error: 'Limite de cota do Firestore atingido (RESOURCE_EXHAUSTED). A cota diária gratuita do Firebase será restabelecida no próximo ciclo diário.',
+          code: 'RESOURCE_EXHAUSTED'
+        });
+        return;
+      }
+      res.status(500).json({ error: 'Não foi possível concluir a operação. Tente novamente.' });
     }
   };
 
@@ -83,8 +104,16 @@ async function startServer() {
     res.json({ success: true, uid, email, emailVerified });
   });
 
+  let statsCache: { stats: any; timestamp: number } | null = null;
+  const STATS_CACHE_TTL = 30 * 1000; // 30s
+
   app.get('/api/admin/stats', authenticate, requireMaster, async (req, res) => {
     try {
+      const now = Date.now();
+      if (statsCache && (now - statsCache.timestamp < STATS_CACHE_TTL)) {
+        return res.json({ success: true, stats: statsCache.stats });
+      }
+
       const [brandsSnap, unitsSnap, glSnap, progSnap, usersSnap, grantsSnap, classesSnap, studentsSnap] = await Promise.all([
         db.collection('brands').get(),
         db.collection('units').get(),
@@ -103,22 +132,34 @@ async function startServer() {
       const coordinations = users.filter(u => u.role === 'COORDINATION').length + 
                            pendingGrants.filter(g => g.role === 'COORDINATION').length;
 
+      const stats = {
+        brands: brandsSnap.size,
+        units: unitsSnap.size,
+        gradeLevels: glSnap.size,
+        programs: progSnap.size,
+        classes: classesSnap.size,
+        students: studentsSnap.size,
+        users: totalUsers,
+        coordinations
+      };
+
+      statsCache = { stats, timestamp: now };
       res.json({
         success: true,
-        stats: {
-          brands: brandsSnap.size,
-          units: unitsSnap.size,
-          gradeLevels: glSnap.size,
-          programs: progSnap.size,
-          classes: classesSnap.size,
-          students: studentsSnap.size,
-          users: totalUsers,
-          coordinations
-        }
+        stats
       });
     } catch (error: any) {
       console.error("Stats Error:", error);
-      res.status(500).json({ error: 'Erro de permissão IAM no Sandbox: ' + error.message });
+      if (error?.code === 8 || error?.message?.includes('RESOURCE_EXHAUSTED') || error?.message?.includes('Quota exceeded')) {
+        if (statsCache) {
+          return res.json({ success: true, stats: statsCache.stats, stale: true });
+        }
+        return res.status(429).json({
+          error: 'Limite de cota do Firestore atingido (RESOURCE_EXHAUSTED). A cota diária gratuita do Firebase será restabelecida no próximo ciclo diário.',
+          code: 'RESOURCE_EXHAUSTED'
+        });
+      }
+      res.status(500).json({ error: 'Erro ao carregar estatísticas: ' + error.message });
     }
   });
 
@@ -200,6 +241,12 @@ async function startServer() {
   app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
     if (req.path.startsWith('/api/')) {
       console.error("Global API Error Handler caught:", err);
+      if (err?.code === 8 || err?.message?.includes('RESOURCE_EXHAUSTED') || err?.message?.includes('Quota exceeded')) {
+        return res.status(429).json({
+          error: "Limite de cota do Firestore atingido (RESOURCE_EXHAUSTED). A cota diária gratuita do Firebase será restabelecida no próximo ciclo diário.",
+          code: "RESOURCE_EXHAUSTED"
+        });
+      }
       return res.status(500).json({ error: err.message || "Erro interno do servidor." });
     }
     next(err);

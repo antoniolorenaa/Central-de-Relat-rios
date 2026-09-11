@@ -3,10 +3,10 @@ import { getFirestore } from 'firebase-admin/firestore';
 
 export function registerReportsRoutes(app: express.Express, db: FirebaseFirestore.Firestore, authenticate: any) {
   // Transfer Report to a new Matrix
-    app.post('/api/academic/reports/:reportId/transfer', authenticate, async (req, res) => {
+  app.post('/api/academic/reports/:reportId/transfer', authenticate, async (req, res) => {
     try {
       const { reportId } = req.params;
-      const { enrollmentId, period, newMatrixId, newMatrixVersion, expectedRevision } = req.body;
+      const { enrollmentId, period, newMatrixId, expectedRevision } = req.body;
       const uid = (req as any).user.uid;
 
       if (!period || !enrollmentId || !newMatrixId) return res.status(400).json({ error: 'Parâmetros insuficientes.' });
@@ -27,41 +27,121 @@ export function registerReportsRoutes(app: express.Express, db: FirebaseFirestor
       const newAssessmentId = `ass_${enrollmentId}_${newMatrixId}_${period}`;
 
       const finalState = await db.runTransaction(async (t) => {
+        // --- 1. Read Report ---
         const doc = await t.get(reportRef);
         if (!doc.exists) throw new Error('Relatório não encontrado.');
         
         const reportData = doc.data()!;
         
-        if (reportData.reportStatus === 'VALIDATED') {
-          throw new Error('Relatórios já validados não podem ser transferidos.');
+        if (expectedRevision === undefined || typeof expectedRevision !== 'number') {
+          throw new Error('Revisão esperada não fornecida ou inválida.');
         }
 
-        if (expectedRevision !== undefined && reportData.revision !== expectedRevision) {
+        if (reportData.revision !== expectedRevision) {
           throw new Error('CONCURRENCY_CONFLICT');
         }
 
-        const oldAssessmentId = reportData.assessmentId;
+        // --- 2. Read Target Matrix ---
+        const matrixRef = db.collection('matrices').doc(newMatrixId);
+        const matrixDoc = await t.get(matrixRef);
+        
+        if (!matrixDoc.exists) throw new Error('Matriz de destino não encontrada.');
+        const matrixData = matrixDoc.data()!;
 
+        if (matrixData.status !== 'PUBLISHED') {
+          throw new Error('Matriz de destino não está publicada.');
+        }
+
+        // Compatibility check
+        if (!matrixData.schoolYears || !matrixData.schoolYears.includes(enrollment.schoolYear)) {
+          throw new Error('Matriz incompatível com o ano letivo da matrícula.');
+        }
+        if (!matrixData.periods || !matrixData.periods.includes(period)) {
+          throw new Error('Matriz incompatível com o período.');
+        }
+
+        const actualMatrixVersion = matrixData.version || 1;
+
+        // --- 3. Read Target Assessment ---
+        const newAssessmentRef = db.collection('assessments').doc(newAssessmentId);
+        const newAssessmentDoc = await t.get(newAssessmentRef);
+        let assessmentData: any;
+
+        if (newAssessmentDoc.exists) {
+           assessmentData = newAssessmentDoc.data()!;
+           if (assessmentData.enrollmentId !== enrollmentId || 
+               assessmentData.period !== period || 
+               assessmentData.matrixId !== newMatrixId) {
+               throw new Error('Avaliação de destino com vínculos corrompidos.');
+           }
+        } else {
+           // Create missing assessment
+           const requiredCount = (matrixData.criteria || []).filter((c:any) => c.required).length;
+           
+           assessmentData = {
+               id: newAssessmentId,
+               enrollmentId,
+               studentId: enrollment.studentId,
+               classId: enrollment.classId,
+               schoolYear: enrollment.schoolYear,
+               period,
+               matrixId: newMatrixId,
+               matrixVersion: actualMatrixVersion,
+               answers: {},
+               answeredCount: 0,
+               requiredCount,
+               developedCount: 0,
+               inDevelopmentCount: 0,
+               completionPercentage: requiredCount === 0 ? 100 : 0,
+               status: requiredCount === 0 ? 'COMPLETED' : 'NOT_STARTED',
+               createdAt: Date.now(),
+               updatedAt: Date.now(),
+               updatedBy: uid,
+               revision: 1
+           };
+        }
+
+        // --- WRITES ---
+
+        if (!newAssessmentDoc.exists) {
+           t.set(newAssessmentRef, assessmentData);
+        }
+
+        // Update Report
+        const oldAssessmentId = reportData.assessmentId;
+        const oldStatus = reportData.reportStatus;
+        
         reportData.assessmentId = newAssessmentId;
         reportData.matrixId = newMatrixId;
-        reportData.matrixVersion = newMatrixVersion;
+        reportData.matrixVersion = actualMatrixVersion;
         reportData.revision = (reportData.revision || 0) + 1;
         reportData.updatedAt = Date.now();
         reportData.updatedBy = uid;
+
+        if (oldStatus === 'VALIDATED') {
+            reportData.reportStatus = determineReportStatus({ ...reportData, reportStatus: '' }, assessmentData.status);
+            delete reportData.validatedBy;
+            delete reportData.validatedAt;
+            delete reportData.validatedAssessmentRevision;
+            delete reportData.validatedMatrixId;
+            delete reportData.validatedMatrixVersion;
+        } else {
+            reportData.reportStatus = determineReportStatus({ ...reportData, reportStatus: '' }, assessmentData.status);
+        }
 
         t.set(reportRef, reportData);
 
         // Write audit log
         const auditRef = db.collection('auditLogs').doc();
         t.set(auditRef, {
-          action: 'REPORT_TRANSFERRED',
+          action: oldStatus === 'VALIDATED' ? 'REPORT_INVALIDATED_BY_MATRIX_TRANSFER' : 'REPORT_TRANSFERRED',
           reportId: reportData.id,
           studentId: enrollment.studentId,
           classId: enrollment.classId,
           oldAssessmentId: oldAssessmentId || null,
           newAssessmentId,
           newMatrixId,
-          newMatrixVersion,
+          newMatrixVersion: actualMatrixVersion,
           uid,
           timestamp: Date.now()
         });
@@ -72,7 +152,12 @@ export function registerReportsRoutes(app: express.Express, db: FirebaseFirestor
       res.json({ success: true, report: finalState });
     } catch (e: any) {
       if (e.message === 'CONCURRENCY_CONFLICT') return res.status(409).json({ error: 'Este relatório foi atualizado por outro usuário. Recarregue para continuar.' });
-      if (e.message === 'Relatórios já validados não podem ser transferidos.') return res.status(400).json({ error: e.message });
+      if (e.message === 'Revisão esperada não fornecida ou inválida.') return res.status(400).json({ error: e.message });
+      if (e.message === 'Matriz incompatível com o ano letivo da matrícula.') return res.status(400).json({ error: e.message });
+      if (e.message === 'Matriz incompatível com o período.') return res.status(400).json({ error: e.message });
+      if (e.message === 'Matriz de destino não está publicada.') return res.status(400).json({ error: e.message });
+      if (e.message === 'Avaliação de destino com vínculos corrompidos.') return res.status(400).json({ error: e.message });
+      if (e.message === 'Matriz de destino não encontrada.') return res.status(404).json({ error: e.message });
       if (e.message === 'Relatório não encontrado.') return res.status(404).json({ error: e.message });
       console.error(e);
       res.status(500).json({ error: e.message });
