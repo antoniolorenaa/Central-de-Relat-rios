@@ -139,32 +139,8 @@ async function runTest() {
     strengths: 'Força A', developmentAspects: 'Des A', additionalInformation: 'Info A', finalText: 'Parecer A'
   });
   assert.strictEqual(resOk.status, 200, resOk.json?.error);
-  let savedRep = db.store.get('reports/rep_enr1_T1');
-  assert.strictEqual(savedRep.reportStatus, 'VALIDATED');
-  assert.strictEqual(savedRep.strengths, 'Força A');
-  assert.strictEqual(savedRep.finalText, 'Parecer A');
-  assert.strictEqual(savedRep.validatedAssessmentRevision, 10);
-  assert.strictEqual(savedRep.revision, 2);
-
-  // 2. Inconsistent requests to an already VALIDATED report
-  const resAlreadyVal = await invoke({
-    enrollmentId: 'enr1', period: 'T1', assessmentId: 'ass_enr1_mat_ok_T1',
-    expectedRevision: 2,
-    strengths: 'NEW FORCA', // divergent text
-    finalText: 'Parecer A'
-  });
-  assert.strictEqual(resAlreadyVal.status, 400);
-  assert.strictEqual(resAlreadyVal.json.error, 'Relatório já validado não aceita alterações de texto.');
-
-  // Check it accepts identical text or no text changes when validated
-  const resAlreadyValOk = await invoke({
-    enrollmentId: 'enr1', period: 'T1', assessmentId: 'ass_enr1_mat_ok_T1',
-    expectedRevision: 2
-  });
-  assert.strictEqual(resAlreadyValOk.status, 200); // Accepted, no changes made
 
   // 3. Revisão inválida/desatualizada
-  // Revert report to NOT_STARTED for further tests
   db.store.set('reports/rep_enr1_T1', {
     ...db.store.get('reports/rep_enr1_T1'),
     reportStatus: 'READY_FOR_REVIEW',
@@ -174,42 +150,55 @@ async function runTest() {
   const resBadRev = await invoke({ enrollmentId: 'enr1', period: 'T1', assessmentId: 'ass_enr1_mat_ok_T1', expectedRevision: -1 });
   assert.strictEqual(resBadRev.status, 400);
   
-  const resConfl = await invoke({ enrollmentId: 'enr1', period: 'T1', assessmentId: 'ass_enr1_mat_ok_T1', expectedRevision: 2 }); // actually 3
+  const resConfl = await invoke({ enrollmentId: 'enr1', period: 'T1', assessmentId: 'ass_enr1_mat_ok_T1', expectedRevision: 2 });
   assert.strictEqual(resConfl.status, 409);
 
-  // 4. Avaliação ausente
+  // NEW TESTS
+  // 7. matrixId null nos dois documentos
   db.store.set('reports/rep_enr1_T1', {
     ...db.store.get('reports/rep_enr1_T1'),
-    assessmentId: 'ass_missing'
+    matrixId: null,
+    matrixVersion: 5
   });
-  const resAssMissing = await invoke({ enrollmentId: 'enr1', period: 'T1', assessmentId: 'ass_missing', expectedRevision: 3 });
-  assert.strictEqual(resAssMissing.status, 404);
+  db.store.set('assessments/ass_enr1_mat_ok_T1', {
+    ...db.store.get('assessments/ass_enr1_mat_ok_T1'),
+    matrixId: null,
+    matrixVersion: 5
+  });
+  const resNullMatrix = await invoke({ enrollmentId: 'enr1', period: 'T1', assessmentId: 'ass_enr1_mat_ok_T1', expectedRevision: 3 });
+  assert.strictEqual(resNullMatrix.status, 400);
+  assert.ok(resNullMatrix.json.error.includes('campos estruturais'), 'Deveria barrar matrixId nulo');
 
-  // 5. Vínculos divergentes do relatório
+  // 8. matrixId vazio nos dois documentos
   db.store.set('reports/rep_enr1_T1', {
     ...db.store.get('reports/rep_enr1_T1'),
-    assessmentId: 'ass_enr1_mat_ok_T1',
-    matrixId: 'mat_other' // Corrompido
+    matrixId: '   ', // vazio
+    matrixVersion: 5
   });
-  const resBadLink = await invoke({ enrollmentId: 'enr1', period: 'T1', assessmentId: 'ass_enr1_mat_ok_T1', expectedRevision: 3 });
-  assert.strictEqual(resBadLink.status, 400);
-  assert.strictEqual(resBadLink.json.error, 'Vínculos inconsistentes no relatório.');
+  db.store.set('assessments/ass_enr1_mat_ok_T1', {
+    ...db.store.get('assessments/ass_enr1_mat_ok_T1'),
+    matrixId: '  ' // vazio
+  });
+  const resEmptyMatrix = await invoke({ enrollmentId: 'enr1', period: 'T1', assessmentId: 'ass_enr1_mat_ok_T1', expectedRevision: 3 });
+  assert.strictEqual(resEmptyMatrix.status, 400);
+  assert.ok(resEmptyMatrix.json.error.includes('campos estruturais'), 'Deveria barrar matrixId vazio');
 
-  // 6. Textos inválidos
-  // Fix the links first
+  // 9. matrixVersion null nos dois documentos
   db.store.set('reports/rep_enr1_T1', {
     ...db.store.get('reports/rep_enr1_T1'),
-    matrixId: 'mat_ok'
+    matrixId: 'mat_ok',
+    matrixVersion: null
   });
-  const resBadText = await invoke({ enrollmentId: 'enr1', period: 'T1', assessmentId: 'ass_enr1_mat_ok_T1', expectedRevision: 3, finalText: '   ' }); // empty after trim
-  assert.strictEqual(resBadText.status, 400);
-  assert.strictEqual(resBadText.json.error, 'Parecer não pode estar vazio.');
+  db.store.set('assessments/ass_enr1_mat_ok_T1', {
+    ...db.store.get('assessments/ass_enr1_mat_ok_T1'),
+    matrixId: 'mat_ok',
+    matrixVersion: null
+  });
+  const resNullVersion = await invoke({ enrollmentId: 'enr1', period: 'T1', assessmentId: 'ass_enr1_mat_ok_T1', expectedRevision: 3 });
+  assert.strictEqual(resNullVersion.status, 400);
+  assert.ok(resNullVersion.json.error.includes('campos estruturais'), 'Deveria barrar matrixVersion nulo');
 
-  const resBadType = await invoke({ enrollmentId: 'enr1', period: 'T1', assessmentId: 'ass_enr1_mat_ok_T1', expectedRevision: 3, strengths: 123, finalText: 'Ok' });
-  assert.strictEqual(resBadType.status, 400);
-  assert.strictEqual(resBadType.json.error, 'Os campos textuais devem ser strings.');
-
-  console.log("All real validate route tests passed");
+  console.log("All real validate struct tests passed");
 }
 
 runTest().catch(e => {

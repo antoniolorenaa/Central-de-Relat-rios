@@ -33,7 +33,7 @@ export function registerReportsRoutes(app: express.Express, db: FirebaseFirestor
         
         const reportData = doc.data()!;
         
-        if (expectedRevision === undefined || typeof expectedRevision !== 'number') {
+        if (expectedRevision === undefined || !Number.isSafeInteger(expectedRevision) || expectedRevision < 0) {
           throw new Error('Revisão esperada não fornecida ou inválida.');
         }
 
@@ -402,6 +402,29 @@ export function registerReportsRoutes(app: express.Express, db: FirebaseFirestor
         
         const assData = assDoc.data()!;
 
+        const reqStr = (v: any) => typeof v === 'string' && v.trim() !== '';
+
+        if (!reqStr(reportData.enrollmentId) ||
+            !reqStr(reportData.studentId) ||
+            !reqStr(reportData.classId) ||
+            !reqStr(reportData.schoolYear) ||
+            !reqStr(reportData.period) ||
+            !reqStr(reportData.matrixId) ||
+            !Number.isSafeInteger(reportData.matrixVersion) || reportData.matrixVersion <= 0) {
+          throw new Error('Documento de relatório com campos estruturais ausentes ou inválidos.');
+        }
+
+        if (!reqStr(assData.enrollmentId) ||
+            !reqStr(assData.studentId) ||
+            !reqStr(assData.classId) ||
+            !reqStr(assData.schoolYear) ||
+            !reqStr(assData.period) ||
+            !reqStr(assData.matrixId) ||
+            !Number.isSafeInteger(assData.matrixVersion) || assData.matrixVersion <= 0 ||
+            !Number.isSafeInteger(assData.revision) || assData.revision < 0) {
+          throw new Error('Documento de avaliação com campos estruturais ausentes ou inválidos.');
+        }
+
         // CONFERÊNCIA DOS VÍNCULOS DO RELATÓRIO
         if (
           reportData.enrollmentId !== enrollmentId ||
@@ -497,6 +520,8 @@ export function registerReportsRoutes(app: express.Express, db: FirebaseFirestor
       if (e.message === 'INVALID_ASSESSMENT_STATUS') return res.status(400).json({ error: 'Avaliação precisa estar COMPLETED.' });
       if (e.message === 'MISSING_FINAL_TEXT') return res.status(400).json({ error: 'Parecer não pode estar vazio.' });
       if (e.message === 'INVALID_TEXT_FIELD') return res.status(400).json({ error: 'Os campos textuais devem ser strings.' });
+      if (e.message === 'Documento de relatório com campos estruturais ausentes ou inválidos.') return res.status(400).json({ error: e.message });
+      if (e.message === 'Documento de avaliação com campos estruturais ausentes ou inválidos.') return res.status(400).json({ error: e.message });
       if (e.message === 'O ID de avaliação diverge do vinculado ao relatório.') return res.status(400).json({ error: e.message });
       if (e.message === 'Vínculos inconsistentes no relatório.') return res.status(400).json({ error: e.message });
       if (e.message === 'Vínculos inconsistentes entre avaliação, matrícula e relatório.') return res.status(400).json({ error: e.message });
