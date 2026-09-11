@@ -187,7 +187,7 @@ const errors = [];
         if (codes.has(crit.code)) return res.status(400).json({ error: `Código duplicado encontrado: ${crit.code}` });
         codes.add(crit.code);
 
-        if (objectives.has(crit.objective)) return res.status(400).json({ error: `Objetivo duplicado encontrado: ${crit.objective}` });
+        // Removed duplicate objective validation
         objectives.add(crit.objective);
       }
 

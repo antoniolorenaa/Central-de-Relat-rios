@@ -59,10 +59,10 @@ function MasterHome() {
       if (res.ok && data.success) {
         window.location.reload();
       } else {
-        alert("Erro ao realizar Seed: " + data.error);
+        console.error("Erro ao realizar Seed: " + data.error);
       }
     } catch (err: any) {
-      alert("Erro ao realizar Seed: " + err.message);
+      console.error("Erro ao realizar Seed: " + err.message);
       console.error(err);
     }
   };
@@ -178,6 +178,7 @@ function CoordinationHome() {
   const [brands, setBrands] = useState<any[]>([]);
   const [units, setUnits] = useState<any[]>([]);
   const [gradeLevels, setGradeLevels] = useState<any[]>([]);
+  
 
   useEffect(() => {
     async function loadStructure() {

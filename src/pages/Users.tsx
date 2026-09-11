@@ -4,6 +4,7 @@ import { collection, getDocs, doc, deleteDoc, query, where, onSnapshot } from 'f
 import { db } from '../lib/firebase';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
+import { ConfirmModal } from '../components/ui/ConfirmModal';
 import { UserProfile, Brand, Unit, GradeLevel, Scope } from '../types';
 import { Plus, Edit2, ShieldBan, ShieldCheck } from 'lucide-react';
 
@@ -60,7 +61,23 @@ export function Users() {
 
   const handleToggleActive = async (u: any) => {
     if (u.active) {
-      if (!window.confirm(`Tem certeza que deseja desativar o acesso de ${u.name}?`)) return;
+      console.log({
+        isOpen: true,
+        title: 'Desativar Usuário',
+        message: `Tem certeza que deseja desativar o acesso de ${u.name}?`,
+        onConfirm: async () => {
+          console.log(null);
+          try {
+            const { updateDoc } = await import('firebase/firestore');
+            const updates = { active: !u.active, updatedAt: Date.now() };
+            await updateDoc(doc(db, 'users', u.id), updates);
+            setUsers(users.map(x => x.id === u.id ? { ...x, ...updates } : x));
+          } catch (e: any) {
+            console.error(e.message || 'Erro ao atualizar status');
+          }
+        }
+      });
+      return;
     }
     try {
       const { updateDoc } = await import('firebase/firestore');
@@ -185,6 +202,8 @@ function UserModal({ user, brands, units, gradeLevels, onClose }: any) {
   const [scopes, setScopes] = useState<Scope[]>(user?.scopes || []);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  
+  
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();

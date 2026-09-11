@@ -22,6 +22,7 @@ export function Matrices() {
   
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState('');
+  const [confirmPublishId, setConfirmPublishId] = useState<string | null>(null);
 
   useEffect(() => {
     fetchMeta();
@@ -106,7 +107,6 @@ export function Matrices() {
   };
 
   const publishMatrix = async (id: string) => {
-    if (!window.confirm('Tem certeza? Matrizes publicadas não podem ser alteradas.')) return;
     try {
       const token = await user?.getIdToken();
       const res = await fetch(`/api/admin/matrices/${id}/publish`, {
@@ -115,12 +115,13 @@ export function Matrices() {
       });
       const data = await res.json();
       if (!res.ok || !data.success) {
-        alert(data.error || 'Erro ao publicar.');
+        setError(data.error || 'Erro ao publicar.');
       } else {
+        setConfirmPublishId(null);
         fetchMatrices();
       }
     } catch (e: any) {
-      alert(e.message);
+      setError(e.message);
     }
   };
 
@@ -268,11 +269,21 @@ export function Matrices() {
                           </div>
                         </div>
 
-                        {matrix.status === 'DRAFT' && (
-                          <Button variant="outline" className="text-green-700 border-green-200 hover:bg-green-50 whitespace-nowrap" onClick={() => publishMatrix(matrix.id)}>
+                        {matrix.status === 'DRAFT' && confirmPublishId !== matrix.id && (
+                          <Button variant="outline" className="text-green-700 border-green-200 hover:bg-green-50 whitespace-nowrap" onClick={() => setConfirmPublishId(matrix.id)}>
                             <CheckCircle className="w-4 h-4 mr-2" />
                             Publicar
                           </Button>
+                        )}
+                        {matrix.status === 'DRAFT' && confirmPublishId === matrix.id && (
+                          <div className="flex flex-col sm:flex-row gap-2">
+                            <Button variant="outline" className="whitespace-nowrap" onClick={() => setConfirmPublishId(null)}>
+                              Cancelar
+                            </Button>
+                            <Button className="bg-green-600 hover:bg-green-700 whitespace-nowrap" onClick={() => publishMatrix(matrix.id)}>
+                              Confirmar Publicação
+                            </Button>
+                          </div>
                         )}
                         {matrix.status === 'PUBLISHED' && (
                           <div className="text-sm text-green-700 font-medium flex items-center">

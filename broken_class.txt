@@ -1,0 +1,979 @@
+     1	import React, { useEffect, useState, useMemo, useRef } from 'react';
+     2	import { useParams, useNavigate } from 'react-router-dom';
+     3	import { useAuth } from '../lib/auth';
+     4	import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/Card';
+     5	import { Button } from '../components/ui/Button';
+     6	import { ConfirmModal } from '../components/ui/ConfirmModal';
+     7	import { ConfirmModal } from '../components/ui/ConfirmModal';
+     8	import { Loader2, ChevronLeft, ChevronRight, CheckCircle, AlertCircle, RefreshCcw } from 'lucide-react';
+     9	
+    10	export function ClassEvaluation() {
+    11	  const { classId } = useParams();
+    12	  const navigate = useNavigate();
+    13	  const { user } = useAuth();
+    14	  const [period, setPeriod] = useState('1B');
+    15	  
+    16	  const [cls, setCls] = useState<any>(null);
+    17	  const [students, setStudents] = useState<any[]>([]);
+    18	  const [assessments, setAssessments] = useState<any[]>([]);
+    19	  const [reports, setReports] = useState<any[]>([]);
+    20	  
+    21	  const [activeMatrix, setActiveMatrix] = useState<any>(null);
+    22	  const [historicalMatrices, setHistoricalMatrices] = useState<Record<string, any>>({});
+    23	  const [configConflict, setConfigConflict] = useState(false);
+    24	  
+    25	  const [loading, setLoading] = useState(true);
+    26	  const [error, setError] = useState('');
+    27	  
+    28	  const [selectedStudentId, setSelectedStudentId] = useState<string | null>(null);
+    29	  const [studentFilter, setStudentFilter] = useState('ALL'); // ALL, NOT_STARTED, IN_PROGRESS, COMPLETED
+    30	
+    31	  const [savingState, setSavingState] = useState<'idle'|'saving'|'saved'|'error'>('idle');
+    32	  const [savingError, setSavingError] = useState('');
+    33	  const [confirmConfig, setConfirmConfig] = useState<{ isOpen: boolean, title: string, message: string, onConfirm: () => void } | null>(null);
+    34	
+    35	  const [confirmConfig, setConfirmConfig] = useState<{ isOpen: boolean, title: string, message: string, onConfirm: () => void } | null>(null);
+    36	  
+    37	  const [localReport, setLocalReport] = useState<{
+    38	    strengths: string;
+    39	    developmentAspects: string;
+    40	    additionalInformation: string;
+    41	    finalText: string;
+    42	  }>({
+    43	    strengths: '',
+    44	    developmentAspects: '',
+    45	    additionalInformation: '',
+    46	    finalText: ''
+    47	  });
+    48	  
+    49	  // Ref to hold the timeout for debounced saving
+    50	  const reportSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+    51	
+    52	  useEffect(() => {
+    53	    fetchData();
+    54	  }, [classId, period]);
+    55	
+    56	  const fetchData = async () => {
+    57	    setLoading(true);
+    58	    setError('');
+    59	    setActiveMatrix(null);
+    60	    setHistoricalMatrices({});
+    61	    setConfigConflict(false);
+    62	    setStudents([]);
+    63	    setAssessments([]);
+    64	    setSelectedStudentId(null);
+    65	
+    66	    try {
+    67	      const token = await user?.getIdToken();
+    68	      
+    69	      // 1. Get Class Info & Students (reusing academic route)
+    70	      const resClass = await fetch(`/api/academic/classes`, { headers: { 'Authorization': `Bearer ${token}` } });
+    71	      const dataClass = await resClass.json();
+    72	      const currentClass = dataClass.classes?.find((c: any) => c.id === classId);
+    73	      if (!currentClass) {
+    74	        throw new Error('Turma não encontrada ou acesso negado.');
+    75	
+    76	      setCls(currentClass);
+    77	
+    78	      const resStudents = await fetch(`/api/academic/classes/${classId}/students`, { headers: { 'Authorization': `Bearer ${token}` } });
+    79	      const dataStudents = await resStudents.json();
+    80	      if (!dataStudents.success) throw new Error(dataStudents.error);
+    81	      
+    82	      const sortedStudents = dataStudents.students.sort((a: any, b: any) => a.name.localeCompare(b.name));
+    83	      setStudents(sortedStudents);
+    84	
+    85	      if (sortedStudents.length > 0) {
+    86	        setSelectedStudentId(sortedStudents[0].id);
+    87	
+    88	
+    89	      // 2. Get Evaluation Data (Assessments, Active Matrix, Historical Matrices)
+    90	      const resEval = await fetch(`/api/academic/classes/${classId}/evaluation-data?period=${period}`, { 
+    91	        headers: { 'Authorization': `Bearer ${token}` } 
+    92	);
+    93	      const dataEval = await resEval.json();
+    94	      
+    95	      if (!dataEval.success) throw new Error(dataEval.error);
+    96	      
+    97	      setActiveMatrix(dataEval.activeMatrix);
+    98	      setConfigConflict(dataEval.configConflict);
+    99	      setAssessments(dataEval.assessments);
+   100	      setReports(dataEval.reports || []);
+   101	
+   102	      const hist: Record<string, any> = {};
+   103	      dataEval.historicalMatrices?.forEach((m: any) => { hist[m.id] = m; });
+   104	      setHistoricalMatrices(hist);
+   105	
+   106	    } catch (e: any) {
+   107	      setError(e.message);
+   108	    } finally {
+   109	      setLoading(false);
+   110	    }
+   111	  };
+   112	
+   113	  const handleAnswer = async (enrollmentId: string, criterionId: string, answer: 'D' | 'ED' | null, currentMatrix: any) => {
+   114	    if (selectedReport?.reportStatus === 'VALIDATED') {
+   115	      setSavingError('Relatório já validado. Não é possível alterar a avaliação.');
+   116	      return;
+   117	    }
+   118	
+   119	    setSavingState('saving');
+   120	    setSavingError('');
+   121	    
+   122	    const currentAss = assessments.find(a => a.enrollmentId === enrollmentId);
+   123	    let expectedRevision = currentAss?.revision;
+   124	    
+   125	    // Explicitly calculate the ID for the endpoint mapping
+   126	    const assessmentId = currentAss?.id || `ass_${enrollmentId}_${currentMatrix.id}_${period}`;
+   127	
+   128	    setAssessments(prev => {
+   129	      const copy = [...prev];
+   130	      const idx = copy.findIndex(a => a.enrollmentId === enrollmentId);
+   131	      
+   132	      if (idx >= 0) {
+   133	        const item = { ...copy[idx] };
+   134	        item.answers = { ...item.answers };
+   135	        if (answer === null) delete item.answers[criterionId];
+   136	        else item.answers[criterionId] = answer;
+   137	        copy[idx] = item;
+   138	 else {
+   139	        // Creating fake stub just for UI responsiveness while we wait for backend
+   140	        copy.push({
+   141	          enrollmentId,
+   142	          answers: { [criterionId]: answer },
+   143	          status: 'IN_PROGRESS',
+   144	          completionPercentage: 0,
+   145	          matrixId: currentMatrix.id
+   146	  );
+   147	
+   148	      return copy;
+   149	
+   150	
+   151	    try {
+   152	      const token = await user?.getIdToken();
+   153	      const res = await fetch(`/api/academic/assessments/${assessmentId}/answers`, {
+   154	        method: 'POST',
+   155	        headers: { 
+   156	          'Authorization': `Bearer ${token}`,
+   157	          'Content-Type': 'application/json'
+   158	  ,
+   159	        body: JSON.stringify({
+   160	          criterionId,
+   161	          answer,
+   162	          period,
+   163	          matrixId: currentMatrix.id,
+   164	          matrixVersion: currentMatrix.version,
+   165	          expectedRevision,
+   166	          enrollmentId
+   167	  )
+   168	);
+   169	      
+   170	      const data = await res.json();
+   171	      if (!res.ok || !data.success) {
+   172	        throw new Error(data.error || 'Erro ao salvar.');
+   173	
+   174	      
+   175	      // Update with source of truth
+   176	      setAssessments(prev => {
+   177	        const copy = [...prev];
+   178	        const idx = copy.findIndex(a => a.enrollmentId === enrollmentId);
+   179	        if (idx >= 0) {
+   180	          copy[idx] = data.assessment;
+   181	   else {
+   182	          copy.push(data.assessment);
+   183	  
+   184	        return copy;
+   185	);
+   186	      
+   187	      setSavingState('saved');
+   188	      setTimeout(() => setSavingState('idle'), 2000);
+   189	      
+   190	    } catch (e: any) {
+   191	      setSavingState('error');
+   192	      setSavingError(e.message);
+   193	      if (e.message.includes('Recarregue')) {
+   194	        setSavingError(e.message);
+   195	
+   196	      // Revert optimistic update by refetching
+   197	      fetchData();
+   198	    }
+   199	  };
+   200	
+   201	  const saveReportNow = async () => {
+   202	    if (!selectedStudent || selectedReport?.reportStatus === 'VALIDATED') return;
+   203	    if (reportSaveTimeoutRef.current) clearTimeout(reportSaveTimeoutRef.current);
+   204	    
+   205	    setSavingState('saving');
+   206	    try {
+   207	      const payload = {
+   208	        period,
+   209	        matrixId: stuMatrix?.id,
+   210	        strengths: localReport.strengths,
+   211	        developmentAspects: localReport.developmentAspects,
+   212	        additionalInformation: localReport.additionalInformation,
+   213	        finalText: localReport.finalText,
+   214	        expectedRevision: selectedReport?.revision
+   215	;
+   216	      
+   217	      const token = await user?.getIdToken();
+   218	      
+   219	      const currentAss = assessments.find(a => a.enrollmentId === selectedStudent.enrollment.id);
+   220	      const assessmentId = currentAss?.id || `ass_${selectedStudent.enrollment.id}_${stuMatrix?.id}_${period}`;
+   221	      const reportId = selectedReport?.id || `rep_${selectedStudent.enrollment.id}_${period}`;
+   222	      (payload as any).assessmentId = assessmentId;
+   223	      (payload as any).enrollmentId = selectedStudent.enrollment.id;
+   224	      
+   225	      const res = await fetch(`/api/academic/reports/${reportId}`, {
+   226	        method: 'POST',
+   227	        headers: {
+   228	          'Content-Type': 'application/json',
+   229	          'Authorization': `Bearer ${token}`
+   230	  ,
+   231	        body: JSON.stringify(payload)
+   232	);
+   233	      
+   234	      const data = await res.json();
+   235	      
+   236	      if (!res.ok) {
+   237	        if (res.status === 409) {
+   238	          setSavingError(data.error);
+   239	          setSavingState('error');
+   240	          setSavingError(data.error);
+   241	          fetchData();
+   242	          return;
+   243	  
+   244	        throw new Error(data.error || 'Erro ao salvar relatório');
+   245	
+   246	      
+   247	      setReports(prev => {
+   248	        const idx = prev.findIndex(r => r.id === data.report.id);
+   249	        if (idx >= 0) {
+   250	          const next = [...prev];
+   251	          next[idx] = data.report;
+   252	          return next;
+   253	   else {
+   254	          return [...prev, data.report];
+   255	  
+   256	);
+   257	      
+   258	      setSavingState('saved');
+   259	      setTimeout(() => setSavingState('idle'), 2000);
+   260	    } catch (err: any) {
+   261	      setSavingError(err.message);
+   262	      setSavingState('error');
+   263	    }
+   264	
+   265	
+   266	  };
+   267	
+   268	  const handleReportChange = (field: string, value: string) => {
+   269	    if (!selectedStudent || selectedReport?.reportStatus === 'VALIDATED') return;
+   270	    
+   271	    setLocalReport(prev => ({ ...prev, [field]: value }));
+   272	    
+   273	    setSavingState('saving');
+   274	    setSavingError('');
+   275	
+   276	    if (reportSaveTimeoutRef.current) clearTimeout(reportSaveTimeoutRef.current);
+   277	
+   278	    reportSaveTimeoutRef.current = setTimeout(async () => {
+   279	      try {
+   280	        const payload = {
+   281	          period,
+   282	          matrixId: stuMatrix?.id,
+   283	          [field]: value,
+   284	          expectedRevision: selectedReport?.revision
+   285	  ;
+   286	        
+   287	        const token = await user?.getIdToken();
+   288	        
+   289	        const currentAss = assessments.find(a => a.enrollmentId === selectedStudent.enrollment.id);
+   290	        const assessmentId = currentAss?.id || `ass_${selectedStudent.enrollment.id}_${stuMatrix?.id}_${period}`;
+   291	        const reportId = selectedReport?.id || `rep_${selectedStudent.enrollment.id}_${period}`;
+   292	        payload.assessmentId = assessmentId;
+   293	        payload.enrollmentId = selectedStudent.enrollment.id;
+   294	        
+   295	        const res = await fetch(`/api/academic/reports/${reportId}`, {
+   296	          method: 'POST',
+   297	          headers: {
+   298	            'Content-Type': 'application/json',
+   299	            'Authorization': `Bearer ${token}`
+   300	    ,
+   301	          body: JSON.stringify(payload)
+   302	  );
+   303	        
+   304	        const data = await res.json();
+   305	        
+   306	        if (!res.ok) {
+   307	          if (res.status === 409) {
+   308	            setSavingError(data.error);
+   309	            setSavingState('error');
+   310	            setSavingError(data.error);
+   311	            fetchData();
+   312	            return;
+   313	    
+   314	          throw new Error(data.error || 'Erro ao salvar relatório');
+   315	  
+   316	        
+   317	        // Update reports list
+   318	        setReports(prev => {
+   319	          const idx = prev.findIndex(r => r.id === data.report.id);
+   320	          if (idx >= 0) {
+   321	            const next = [...prev];
+   322	            next[idx] = data.report;
+   323	            return next;
+   324	     else {
+   325	            return [...prev, data.report];
+   326	    
+   327	  );
+   328	        
+   329	        setSavingState('saved');
+   330	        setTimeout(() => setSavingState('idle'), 2000);
+   331	 catch (err: any) {
+   332	        setSavingError(err.message);
+   333	        setSavingState('error');
+   334	
+   335	    }, 1000);
+   336	  };
+   337	
+   338	  
+   339	  const handleTransferMatrix = async () => {
+   340	    if (!selectedStudent || !activeMatrix) return;
+   341	    
+   342	    
+   343	    setConfirmConfig({
+   344	      isOpen: true,
+   345	      title: 'Transferir Matriz',
+   346	      message: 'ATENÇÃO: Transferir este aluno para a nova Matriz invalidará a revisão pedagógica atual. Deseja continuar?',
+   347	      onConfirm: async () => {
+   348	        setConfirmConfig(null);
+   349	
+   350	    
+   351	    try {
+   352	      const token = await user?.getIdToken();
+   353	      const reportId = selectedReport?.id || `rep_${selectedStudent.enrollment.id}_${period}`;
+   354	      
+   355	      const res = await fetch(`/api/academic/reports/${reportId}/transfer`, {
+   356	        method: 'POST',
+   357	        headers: {
+   358	          'Content-Type': 'application/json',
+   359	          'Authorization': `Bearer ${token}`
+   360	  ,
+   361	        body: JSON.stringify({
+   362	          enrollmentId: selectedStudent.enrollment.id,
+   363	          period,
+   364	          newMatrixId: activeMatrix.id,
+   365	          newMatrixVersion: activeMatrix.version
+   366	  )
+   367	);
+   368	      
+   369	      const data = await res.json();
+   370	      if (!data.success) throw new Error(data.error);
+   371	      
+   372	      await fetchData(); // refresh all data
+   373	      setSavingError("Transferência concluída. A revisão pedagógica precisará ser refeita.");
+   374	   catch (e: any) {
+   375	          console.error(e);
+   376	          setSavingError("Erro ao transferir matriz: " + (e.message || "Erro desconhecido."));
+   377	  
+   378	
+   379	
+   380	  };
+   381	
+   382	  const handleValidateReport = async () => {
+   383	    if (!selectedStudent || !selectedReport) return;
+   384	    
+   385	    
+   386	    setConfirmConfig({
+   387	      isOpen: true,
+   388	      title: 'Validar Relatório',
+   389	      message: 'Confirma que o relatório foi revisado e está pronto para emissão?',
+   390	      onConfirm: async () => {
+   391	        setConfirmConfig(null);
+   392	
+   393	    
+   394	    // Clear debounce timeout if any
+   395	    if (reportSaveTimeoutRef.current) clearTimeout(reportSaveTimeoutRef.current);
+   396	    
+   397	    setSavingState('saving');
+   398	    try {
+   399	      const token = await user?.getIdToken();
+   400	      
+   401	      const currentAss = assessments.find(a => a.enrollmentId === selectedStudent.enrollment.id);
+   402	      const assessmentId = currentAss?.id || `ass_${selectedStudent.enrollment.id}_${stuMatrix?.id}_${period}`;
+   403	      const reportId = selectedReport?.id || `rep_${selectedStudent.enrollment.id}_${period}`;
+   404	      const payload = { 
+   405	        enrollmentId: selectedStudent.enrollment.id,
+   406	        assessmentId,
+   407	        period, 
+   408	        expectedRevision: selectedReport?.revision,
+   409	        strengths: localReport.strengths,
+   410	        developmentAspects: localReport.developmentAspects,
+   411	        additionalInformation: localReport.additionalInformation,
+   412	        finalText: localReport.finalText,
+   413	        matrixId: stuMatrix?.id
+   414	;
+   415	      
+   416	      const res = await fetch(`/api/academic/reports/${reportId}/validate`, {
+   417	        method: 'POST',
+   418	        headers: {
+   419	          'Content-Type': 'application/json',
+   420	          'Authorization': `Bearer ${token}`
+   421	  ,
+   422	        body: JSON.stringify(payload)
+   423	);
+   424	      
+   425	      const data = await res.json();
+   426	      if (!res.ok) {
+   427	        if (res.status === 409) fetchData();
+   428	        throw new Error(data.error || 'Erro ao validar relatório');
+   429	
+   430	      
+   431	      setReports(prev => {
+   432	        const idx = prev.findIndex(r => r.id === data.report.id);
+   433	        const next = [...prev];
+   434	        next[idx] = data.report;
+   435	        return next;
+   436	);
+   437	      setSavingState('saved');
+   438	      setTimeout(() => setSavingState('idle'), 2000);
+   439	    } catch (err: any) {
+   440	      setSavingError(err.message);
+   441	      setSavingState('error');
+   442	    }
+   443	
+   444	
+   445	  };
+   446	
+   447	  const handleReopenReport = async () => {
+   448	    if (!selectedStudent || !selectedReport) return;
+   449	    
+   450	    
+   451	    setConfirmConfig({
+   452	      isOpen: true,
+   453	      title: 'Reabrir Relatório',
+   454	      message: 'Atenção: A reabertura retornará o relatório para edição. Confirma?',
+   455	      onConfirm: async () => {
+   456	        setConfirmConfig(null);
+   457	
+   458	    
+   459	    setSavingState('saving');
+   460	    try {
+   461	      const token = await user?.getIdToken();
+   462	      const currentAss = assessments.find(a => a.enrollmentId === selectedStudent.enrollment.id);
+   463	      const assessmentId = currentAss?.id || `ass_${selectedStudent.enrollment.id}_${stuMatrix?.id}_${period}`;
+   464	      const reportId = selectedReport?.id || `rep_${selectedStudent.enrollment.id}_${period}`;
+   465	      const res = await fetch(`/api/academic/reports/${reportId}/reopen`, {
+   466	        method: 'POST',
+   467	        headers: {
+   468	          'Content-Type': 'application/json',
+   469	          'Authorization': `Bearer ${token}`
+   470	  ,
+   471	        body: JSON.stringify({ 
+   472	          enrollmentId: selectedStudent.enrollment.id,
+   473	          assessmentId,
+   474	          period, 
+   475	          expectedRevision: selectedReport.revision 
+   476	  )
+   477	);
+   478	      
+   479	      const data = await res.json();
+   480	      if (!res.ok) {
+   481	        if (res.status === 409) fetchData();
+   482	        throw new Error(data.error || 'Erro ao reabrir relatório');
+   483	
+   484	      
+   485	      setReports(prev => {
+   486	        const idx = prev.findIndex(r => r.id === data.report.id);
+   487	        const next = [...prev];
+   488	        next[idx] = data.report;
+   489	        return next;
+   490	);
+   491	      setSavingState('saved');
+   492	      setTimeout(() => setSavingState('idle'), 2000);
+   493	    } catch (err: any) {
+   494	      setSavingError(err.message);
+   495	      setSavingState('error');
+   496	    }
+   497	
+   498	
+   499	  };
+   500	
+   501	  const getAssessment = (studentId: string) => {
+   502	    const stu = students.find(s => s.id === studentId);
+   503	    if (!stu) return null;
+   504	    return assessments.find(a => a.enrollmentId === stu.enrollment.id);
+   505	  };
+   506	
+   507	  const getReport = (studentId: string) => {
+   508	    const stu = students.find(s => s.id === studentId);
+   509	    if (!stu) return null;
+   510	    return reports.find(r => r.enrollmentId === stu.enrollment.id);
+   511	  };
+   512	
+   513	  const filteredStudents = useMemo(() => {
+   514	    return students.filter(s => {
+   515	      if (studentFilter === 'ALL') return true;
+   516	      
+   517	      const ass = getAssessment(s.id);
+   518	      const rep = getReport(s.id);
+   519	      
+   520	      if (studentFilter === 'ASS_NOT_STARTED') return (ass?.status || 'NOT_STARTED') === 'NOT_STARTED';
+   521	      if (studentFilter === 'ASS_IN_PROGRESS') return (ass?.status || 'NOT_STARTED') === 'IN_PROGRESS';
+   522	      if (studentFilter === 'ASS_COMPLETED') return (ass?.status || 'NOT_STARTED') === 'COMPLETED';
+   523	
+   524	      if (studentFilter === 'REP_NOT_STARTED') return (rep?.reportStatus || 'NOT_STARTED') === 'NOT_STARTED';
+   525	      if (studentFilter === 'REP_IN_PROGRESS') return (rep?.reportStatus || 'NOT_STARTED') === 'IN_PROGRESS';
+   526	      if (studentFilter === 'REP_READY') return (rep?.reportStatus || 'NOT_STARTED') === 'READY_FOR_REVIEW';
+   527	      if (studentFilter === 'REP_VALIDATED') return (rep?.reportStatus || 'NOT_STARTED') === 'VALIDATED';
+   528	
+   529	      return true;
+   530	
+   531	  }, [students, assessments, reports, studentFilter]);
+   532	
+   533	  const selectedStudent = students.find(s => s.id === selectedStudentId);
+   534	  const selectedAssessment = selectedStudent ? getAssessment(selectedStudent.id) : null;
+   535	  const selectedReport = selectedStudent ? getReport(selectedStudent.id) : null;
+   536	  
+   537	  // Sync local report state when selected student changes
+   538	  useEffect(() => {
+   539	    if (selectedReport) {
+   540	      setLocalReport({
+   541	        strengths: selectedReport.strengths || '',
+   542	        developmentAspects: selectedReport.developmentAspects || '',
+   543	        additionalInformation: selectedReport.additionalInformation || '',
+   544	        finalText: selectedReport.finalText || ''
+   545	);
+   546	    } else {
+   547	      setLocalReport({
+   548	        strengths: '',
+   549	        developmentAspects: '',
+   550	        additionalInformation: '',
+   551	        finalText: ''
+   552	);
+   553	    }
+   554	  }, [selectedStudentId, selectedReport]);
+   555	
+   556	  const stuMatrix = selectedAssessment 
+   557	    ? (selectedAssessment.matrixId === activeMatrix?.id ? activeMatrix : historicalMatrices[selectedAssessment.matrixId])
+   558	    : activeMatrix;
+   559	
+   560	  // Indicators
+   561	  const totalStudents = students.length;
+   562	  const compCount = students.filter(s => (getAssessment(s.id)?.status === 'COMPLETED')).length;
+   563	  const inProgCount = students.filter(s => (getAssessment(s.id)?.status === 'IN_PROGRESS')).length;
+   564	  const notStartCount = totalStudents - compCount - inProgCount;
+   565	  const compPercent = totalStudents > 0 ? Math.round((compCount / totalStudents) * 100) : 0;
+   566	
+   567	  const repValCount = students.filter(s => (getReport(s.id)?.reportStatus === 'VALIDATED')).length;
+   568	  const repReadyCount = students.filter(s => (getReport(s.id)?.reportStatus === 'READY_FOR_REVIEW')).length;
+   569	  const repInProgCount = students.filter(s => (getReport(s.id)?.reportStatus === 'IN_PROGRESS')).length;
+   570	  const repNotStartCount = totalStudents - repValCount - repReadyCount - repInProgCount;
+   571	
+   572	  return (
+   573	    <div className="space-y-6 max-w-7xl mx-auto h-[calc(100vh-100px)] flex flex-col">
+   574	      {/* Header */}
+   575	      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
+   576	        <div>
+   577	          <button onClick={() => navigate('/academic')} className="text-sm text-blue-600 hover:underline mb-2 flex items-center">
+   578	            <ChevronLeft className="w-4 h-4 mr-1" /> Voltar para Turmas
+   579	          </button>
+   580	          <h1 className="text-2xl font-bold tracking-tight text-[#0f172a]">
+   581	            Avaliação: {cls?.displayName || 'Carregando...'}
+   582	          </h1>
+   583	          <p className="text-gray-500 mt-1">Preenchimento de indicadores de desenvolvimento.</p>
+   584	        </div>
+   585	        
+   586	        <div className="flex items-center space-x-3">
+   587	          <label className="text-sm font-medium text-gray-700">Período:</label>
+   588	          <select 
+   589	            value={period} 
+   590	            onChange={e => setPeriod(e.target.value)}
+   591	            className="text-sm border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500"
+   592	          >
+   593	            <option value="1">1º Bimestre</option>
+   594	            <option value="2">2º Bimestre</option>
+   595	            <option value="3">3º Bimestre</option>
+   596	            <option value="4">4º Bimestre</option>
+   597	            <option value="S1">1º Semestre</option>
+   598	            <option value="S2">2º Semestre</option>
+   599	            <option value="T1">1º Trimestre</option>
+   600	            <option value="T2">2º Trimestre</option>
+   601	            <option value="T3">3º Trimestre</option>
+   602	          </select>
+   603	          <Button variant="outline" onClick={fetchData}><RefreshCcw className="w-4 h-4 mr-2" /> Recarregar</Button>
+   604	        </div>
+   605	      </div>
+   606	
+   607	      {loading ? (
+   608	        <div className="flex-1 flex justify-center items-center"><Loader2 className="w-8 h-8 animate-spin text-blue-600" /></div>
+   609	      ) : error ? (
+   610	        <div className="bg-red-50 text-red-800 p-6 rounded-lg flex flex-col items-center justify-center flex-1">
+   611	          <AlertCircle className="w-12 h-12 mb-4 opacity-50" />
+   612	          <p className="text-lg font-medium">{error}</p>
+   613	        </div>
+   614	      ) : configConflict ? (
+   615	        <div className="bg-red-50 text-red-800 p-12 rounded-lg flex flex-col items-center justify-center flex-1">
+   616	          <AlertCircle className="w-12 h-12 mb-4 opacity-75" />
+   617	          <h2 className="text-xl font-bold text-red-900 mb-2">Conflito de Matrizes</h2>
+   618	          <p>Há mais de uma matriz publicada com a mesma prioridade para esta turma e período.</p>
+   619	          <p className="text-sm mt-2">Resolva o conflito no painel MASTER arquivando as matrizes redundantes.</p>
+   620	        </div>
+   621	      ) : (!activeMatrix && assessments.length === 0) ? (
+   622	        <div className="bg-white border border-gray-200 text-gray-600 p-12 rounded-lg flex flex-col items-center justify-center flex-1">
+   623	          <AlertCircle className="w-12 h-12 mb-4 text-amber-500" />
+   624	          <h2 className="text-xl font-bold text-gray-900 mb-2">Matriz Indisponível</h2>
+   625	          <p>Esta turma ainda não possui uma matriz avaliativa publicada para o período selecionado ({period}).</p>
+   626	        </div>
+   627	      ) : (
+   628	        <div className="flex flex-col md:flex-row gap-6 flex-1 min-h-0">
+   629	          
+   630	          
+   631	                      {selectedAssessment && activeMatrix && selectedAssessment.matrixId !== activeMatrix.id && (
+   632	                        <div className="bg-amber-50 border border-amber-200 text-amber-800 p-4 rounded-lg flex items-center justify-between mb-6">
+   633	                          <div>
+   634	                            <h3 className="font-bold text-amber-900">Nova Matriz Disponível</h3>
+   635	                            <p className="text-sm">Este aluno está sendo avaliado em uma versão anterior da Matriz. Uma nova versão foi publicada.</p>
+   636	                          </div>
+   637	                          <button 
+   638	                            onClick={handleTransferMatrix}
+   639	                            className="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded font-medium transition-colors whitespace-nowrap"
+   640	                          >
+   641	                            Transferir Aluno
+   642	                          </button>
+   643	                        </div>
+   644	                      )}
+   645	
+   646	                    {/* Left Sidebar: Student List */}
+   647	          <Card className="w-full md:w-80 flex flex-col h-full bg-white border-gray-200 overflow-hidden shrink-0">
+   648	            <div className="p-4 border-b border-gray-100 bg-gray-50">
+   649	              <div className="mb-4">
+   650	                <div className="flex items-center justify-between mb-1">
+   651	                  <span className="text-xs font-bold text-gray-700">Avaliações (D/ED)</span>
+   652	                  <span className="text-xs text-gray-500">{compCount}/{totalStudents}</span>
+   653	                </div>
+   654	                <div className="w-full bg-gray-200 rounded-full h-1.5">
+   655	                  <div className="bg-green-500 h-1.5 rounded-full" style={{ width: `${compPercent}%` }}></div>
+   656	                </div>
+   657	              </div>
+   658	
+   659	              <div className="mb-4">
+   660	                <div className="flex items-center justify-between mb-1">
+   661	                  <span className="text-xs font-bold text-gray-700">Relatórios Validados</span>
+   662	                  <span className="text-xs text-gray-500">{repValCount}/{totalStudents}</span>
+   663	                </div>
+   664	                <div className="w-full bg-gray-200 rounded-full h-1.5">
+   665	                  <div className="bg-blue-500 h-1.5 rounded-full" style={{ width: `${totalStudents > 0 ? Math.round((repValCount / totalStudents) * 100) : 0}%` }}></div>
+   666	                </div>
+   667	              </div>
+   668	              
+   669	              <select 
+   670	                value={studentFilter} 
+   671	                onChange={e => setStudentFilter(e.target.value)}
+   672	                className="w-full text-xs border-gray-300 rounded shadow-sm focus:border-blue-500 focus:ring-blue-500 mt-2"
+   673	              >
+   674	                <optgroup label="Visão Geral">
+   675	                  <option value="ALL">Todos os alunos ({totalStudents})</option>
+   676	                </optgroup>
+   677	                <optgroup label="Avaliação (D/ED)">
+   678	                  <option value="ASS_NOT_STARTED">Não iniciados ({notStartCount})</option>
+   679	                  <option value="ASS_IN_PROGRESS">Em preenchimento ({inProgCount})</option>
+   680	                  <option value="ASS_COMPLETED">Concluídos ({compCount})</option>
+   681	                </optgroup>
+   682	                <optgroup label="Relatório Pedagógico">
+   683	                  <option value="REP_NOT_STARTED">Não iniciados ({repNotStartCount})</option>
+   684	                  <option value="REP_IN_PROGRESS">Em elaboração ({repInProgCount})</option>
+   685	                  <option value="REP_READY">Prontos p/ revisão ({repReadyCount})</option>
+   686	                  <option value="REP_VALIDATED">Validados ({repValCount})</option>
+   687	                </optgroup>
+   688	              </select>
+   689	            </div>
+   690	            
+   691	            <div className="flex-1 overflow-y-auto">
+   692	              {filteredStudents.length === 0 ? (
+   693	                <div className="p-6 text-center text-sm text-gray-500">Nenhum aluno.</div>
+   694	              ) : (
+   695	                <ul className="divide-y divide-gray-100">
+   696	                  {filteredStudents.map(stu => {
+   697	                    const ass = getAssessment(stu.id);
+   698	                    const isSelected = selectedStudentId === stu.id;
+   699	                    const status = ass?.status || 'NOT_STARTED';
+   700	                    const pct = ass?.completionPercentage || 0;
+   701	                    const rep = getReport(stu.id);
+   702	                    const repStatus = rep?.reportStatus || 'NOT_STARTED';
+   703	                    
+   704	                    return (
+   705	                      <li key={stu.id}>
+   706	                        <button
+   707	                          onClick={() => setSelectedStudentId(stu.id)}
+   708	                          className={`w-full text-left px-4 py-3 hover:bg-gray-50 transition-colors flex items-center justify-between ${isSelected ? 'bg-blue-50/50 border-l-4 border-blue-600' : 'border-l-4 border-transparent'}`}
+   709	                        >
+   710	                          <div className="truncate pr-2">
+   711	                            <div className={`font-medium text-sm truncate ${isSelected ? 'text-blue-900' : 'text-gray-900'}`}>{stu.name}</div>
+   712	                            <div className="text-[10px] text-gray-500 mt-1 flex items-center gap-2">
+   713	                              <span>Avaliação: <strong className={status === 'COMPLETED' ? 'text-green-600' : status === 'IN_PROGRESS' ? 'text-amber-600' : ''}>{status === 'COMPLETED' ? 'Concluída' : status === 'IN_PROGRESS' ? `${pct}%` : 'Não iniciada'}</strong></span>
+   714	                            </div>
+   715	                            <div className="text-[10px] text-gray-500 flex items-center gap-2">
+   716	                              <span>Relatório: <strong className={repStatus === 'VALIDATED' ? 'text-green-600' : repStatus === 'READY_FOR_REVIEW' ? 'text-blue-600' : repStatus === 'IN_PROGRESS' ? 'text-amber-600' : ''}>
+   717	                                {repStatus === 'VALIDATED' ? 'Validado' : repStatus === 'READY_FOR_REVIEW' ? 'Pronto para revisão' : repStatus === 'IN_PROGRESS' ? 'Em elaboração' : 'Não iniciado'}
+   718	                              </strong></span>
+   719	                            </div>
+   720	                          </div>
+   721	                          
+   722	                          <div className="shrink-0 flex flex-col items-end gap-1">
+   723	                            {status === 'COMPLETED' ? <CheckCircle className="w-3.5 h-3.5 text-green-500" /> : status === 'IN_PROGRESS' ? <div className="w-1.5 h-1.5 rounded-full bg-amber-500"></div> : <div className="w-1.5 h-1.5 rounded-full bg-gray-300"></div>}
+   724	                            {repStatus === 'VALIDATED' ? <CheckCircle className="w-3.5 h-3.5 text-green-500" /> : repStatus === 'READY_FOR_REVIEW' ? <CheckCircle className="w-3.5 h-3.5 text-blue-500" /> : repStatus === 'IN_PROGRESS' ? <div className="w-1.5 h-1.5 rounded-full bg-amber-500"></div> : <div className="w-1.5 h-1.5 rounded-full bg-gray-300"></div>}
+   725	                          </div>
+   726	                        </button>
+   727	                      </li>
+   728	                    );
+   729	            )}
+   730	                </ul>
+   731	              )}
+   732	            </div>
+   733	          </Card>
+   734	
+   735	          {/* Right Area: Evaluation Form */}
+   736	          <Card className="flex-1 flex flex-col h-full bg-white border-gray-200 overflow-hidden">
+   737	            {selectedStudent ? (
+   738	              <>
+   739	                <CardHeader className="bg-gray-50 border-b border-gray-100 py-4 px-6 flex flex-row items-center justify-between">
+   740	                  <div>
+   741	                    <CardTitle className="text-xl text-[#0f172a]">{selectedStudent.name}</CardTitle>
+   742	                    <CardDescription>
+   743	                      Matrícula: {selectedStudent.enrollment.externalStudentId} • {selectedAssessment?.completionPercentage || 0}% preenchido
+   744	                    </CardDescription>
+   745	                  </div>
+   746	                  
+   747	                  {/* Autosave Indicator */}
+   748	                  <div className="flex items-center text-sm font-medium">
+   749	                    {savingState === 'saving' && <span className="text-gray-500 flex items-center"><Loader2 className="w-4 h-4 animate-spin mr-1.5" /> Salvando...</span>}
+   750	                    {savingState === 'saved' && <span className="text-green-600 flex items-center"><CheckCircle className="w-4 h-4 mr-1.5" /> Salvo</span>}
+   751	                    {savingState === 'error' && <span className="text-red-600 flex items-center" title={savingError}><AlertCircle className="w-4 h-4 mr-1.5" /> Erro ao salvar</span>}
+   752	                  </div>
+   753	                </CardHeader>
+   754	                
+   755	                <CardContent className="flex-1 overflow-y-auto p-6 bg-gray-50/30">
+   756	                  {!stuMatrix ? (
+   757	                    <div className="bg-white border border-gray-200 text-gray-600 p-12 rounded-lg flex flex-col items-center justify-center">
+   758	                      <AlertCircle className="w-12 h-12 mb-4 text-amber-500" />
+   759	                      <h2 className="text-lg font-bold text-gray-900 mb-2">Matriz Indisponível</h2>
+   760	                      <p>Não há matriz ativa para avaliar este aluno.</p>
+   761	                    </div>
+   762	                  ) : (
+   763	                    <div className="max-w-3xl mx-auto space-y-8 pb-12">
+   764	                      
+   765	                      {/* D/ED Matrix */}
+   766	                      <div>
+   767	                        <h2 className="text-lg font-bold text-[#0f172a] mb-4 flex items-center">
+   768	                          1. Avaliação D/ED
+   769	                          {selectedAssessment?.status === 'COMPLETED' && <CheckCircle className="w-4 h-4 text-green-500 ml-2" />}
+   770	                        </h2>
+   771	                        <div className="space-y-6">
+   772	                          {stuMatrix.categories.map((catName: string) => {
+   773	                            const criteria = stuMatrix.criteria.filter((c: any) => c.category === catName);
+   774	                            if (criteria.length === 0) return null;
+   775	                            
+   776	                            return (
+   777	                              <div key={catName} className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm">
+   778	                                <div className="bg-[#0f172a] px-5 py-3">
+   779	                                  <h3 className="font-bold text-white text-sm uppercase tracking-wider">{catName}</h3>
+   780	                                </div>
+   781	                                
+   782	                                <div className="divide-y divide-gray-100">
+   783	                                  {criteria.map((crit: any) => {
+   784	                                    const ans = selectedAssessment?.answers?.[crit.id] || null;
+   785	                                    
+   786	                                    return (
+   787	                                      <div key={crit.id} className="p-5 flex flex-col md:flex-row md:items-start justify-between gap-6 hover:bg-gray-50/50 transition-colors">
+   788	                                        <div className="flex-1">
+   789	                                          <div className="flex items-center gap-2 mb-1.5">
+   790	                                            <span className="text-xs font-bold bg-gray-100 text-gray-700 px-2 py-0.5 rounded">{crit.code}</span>
+   791	                                            {crit.required && <span className="text-[10px] font-bold text-red-500 uppercase tracking-wider">Obrigatório</span>}
+   792	                                          </div>
+   793	                                          <p className="text-sm text-gray-900 leading-relaxed">{crit.objective}</p>
+   794	                                        </div>
+   795	                                        
+   796	                                        <div className="flex items-center gap-2 shrink-0 md:pt-2">
+   797	                                          <button 
+   798	                                            onClick={() => handleAnswer(selectedStudent.enrollment.id, crit.id, ans === 'D' ? null : 'D', stuMatrix)}
+   799	                                            className={`w-14 h-10 rounded-md font-bold text-sm border transition-all ${
+   800	                                              ans === 'D' 
+   801	                                                ? 'bg-blue-600 text-white border-blue-600 ring-2 ring-blue-600/20 ring-offset-1' 
+   802	                                                : 'bg-white text-gray-600 border-gray-300 hover:border-blue-400 hover:bg-blue-50'
+   803	                                      `}
+   804	                                            disabled={selectedReport?.reportStatus === 'VALIDATED'}
+   805	                                          >
+   806	                                            D
+   807	                                          </button>
+   808	                                          <button 
+   809	                                            onClick={() => handleAnswer(selectedStudent.enrollment.id, crit.id, ans === 'ED' ? null : 'ED', stuMatrix)}
+   810	                                            className={`w-14 h-10 rounded-md font-bold text-sm border transition-all ${
+   811	                                              ans === 'ED' 
+   812	                                                ? 'bg-amber-500 text-white border-amber-500 ring-2 ring-amber-500/20 ring-offset-1' 
+   813	                                                : 'bg-white text-gray-600 border-gray-300 hover:border-amber-400 hover:bg-amber-50'
+   814	                                      `}
+   815	                                            disabled={selectedReport?.reportStatus === 'VALIDATED'}
+   816	                                          >
+   817	                                            ED
+   818	                                          </button>
+   819	                                        </div>
+   820	                                      </div>
+   821	                                    );
+   822	                            )}
+   823	                                </div>
+   824	                              </div>
+   825	                            );
+   826	                    )}
+   827	                        </div>
+   828	                      </div>
+   829	
+   830	                      <hr className="border-gray-200" />
+   831	
+   832	                      {/* Registros Pedagógicos */}
+   833	                      <div>
+   834	                        <h2 className="text-lg font-bold text-[#0f172a] mb-4">2. Registros Pedagógicos</h2>
+   835	                        <div className="space-y-4">
+   836	                          <div>
+   837	                            <label className="block text-sm font-medium text-gray-700 mb-1">Potencialidades</label>
+   838	                            <textarea 
+   839	                              className="w-full border border-gray-300 rounded-md p-3 text-sm focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:text-gray-500 min-h-[100px]"
+   840	                              placeholder="Descreva as potencialidades do aluno..."
+   841	                              value={localReport.strengths}
+   842	                              onChange={e => handleReportChange('strengths', e.target.value)}
+   843	                              onBlur={saveReportNow}
+   844	                              disabled={selectedReport?.reportStatus === 'VALIDATED'}
+   845	                            />
+   846	                          </div>
+   847	                          <div>
+   848	                            <label className="block text-sm font-medium text-gray-700 mb-1">Aspectos em desenvolvimento</label>
+   849	                            <textarea 
+   850	                              className="w-full border border-gray-300 rounded-md p-3 text-sm focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:text-gray-500 min-h-[100px]"
+   851	                              placeholder="Descreva os aspectos em desenvolvimento..."
+   852	                              value={localReport.developmentAspects}
+   853	                              onChange={e => handleReportChange('developmentAspects', e.target.value)}
+   854	                              onBlur={saveReportNow}
+   855	                              disabled={selectedReport?.reportStatus === 'VALIDATED'}
+   856	                            />
+   857	                          </div>
+   858	                          <div>
+   859	                            <label className="block text-sm font-medium text-gray-700 mb-1">Informações complementares</label>
+   860	                            <textarea 
+   861	                              className="w-full border border-gray-300 rounded-md p-3 text-sm focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:text-gray-500 min-h-[100px]"
+   862	                              placeholder="Outras observações relevantes..."
+   863	                              value={localReport.additionalInformation}
+   864	                              onChange={e => handleReportChange('additionalInformation', e.target.value)}
+   865	                              onBlur={saveReportNow}
+   866	                              disabled={selectedReport?.reportStatus === 'VALIDATED'}
+   867	                            />
+   868	                          </div>
+   869	                        </div>
+   870	                      </div>
+   871	
+   872	                      <hr className="border-gray-200" />
+   873	
+   874	                      {/* Parecer Pedagógico */}
+   875	                      <div>
+   876	                        <h2 className="text-lg font-bold text-[#0f172a] mb-4">3. Parecer Pedagógico</h2>
+   877	                        <div className="space-y-4">
+   878	                          <textarea 
+   879	                            className="w-full border border-gray-300 rounded-md p-3 text-sm focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:text-gray-500 min-h-[200px]"
+   880	                            placeholder="Escreva o parecer final que será impresso no relatório..."
+   881	                            value={localReport.finalText}
+   882	                            onChange={e => handleReportChange('finalText', e.target.value)}
+   883	                            onBlur={saveReportNow}
+   884	                            disabled={selectedReport?.reportStatus === 'VALIDATED'}
+   885	                          />
+   886	                        </div>
+   887	                      </div>
+   888	
+   889	                      <hr className="border-gray-200" />
+   890	
+   891	                      {/* Validation */}
+   892	                      <div className="bg-blue-50/50 border border-blue-100 p-6 rounded-xl flex flex-col items-center text-center space-y-4">
+   893	                        <h2 className="text-lg font-bold text-[#0f172a]">4. Validação do Relatório</h2>
+   894	                        
+   895	                        {selectedReport?.reportStatus === 'VALIDATED' ? (
+   896	                          <>
+   897	                            <div className="bg-green-100 text-green-800 px-4 py-2 rounded-full font-bold text-sm flex items-center">
+   898	                              <CheckCircle className="w-4 h-4 mr-2" />
+   899	                              Relatório Validado
+   900	                            </div>
+   901	                            <p className="text-sm text-gray-600">Este relatório foi concluído e está bloqueado para edições.</p>
+   902	                            <Button variant="outline" onClick={handleReopenReport} className="mt-2 text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200">
+   903	                              Reabrir relatório
+   904	                            </Button>
+   905	                          </>
+   906	                        ) : (
+   907	                          <>
+   908	                            <p className="text-sm text-gray-600 max-w-lg">
+   909	                              Confira se a avaliação D/ED está completa e se o parecer pedagógico foi devidamente preenchido antes de validar.
+   910	                            </p>
+   911	                            
+   912	                            <div className="flex gap-4 w-full max-w-sm">
+   913	                              <div className={`flex-1 p-3 rounded-lg border text-sm ${selectedAssessment?.status === 'COMPLETED' ? 'bg-green-50 border-green-200 text-green-700' : 'bg-amber-50 border-amber-200 text-amber-700'}`}>
+   914	                                <div className="font-bold">Avaliação</div>
+   915	                                {selectedAssessment?.status === 'COMPLETED' ? 'Concluída' : 'Pendente'}
+   916	                              </div>
+   917	                              <div className={`flex-1 p-3 rounded-lg border text-sm ${(localReport.finalText?.trim()?.length || 0) > 0 ? 'bg-green-50 border-green-200 text-green-700' : 'bg-amber-50 border-amber-200 text-amber-700'}`}>
+   918	                                <div className="font-bold">Parecer</div>
+   919	                                {(localReport.finalText?.trim()?.length || 0) > 0 ? 'Preenchido' : 'Vazio'}
+   920	                              </div>
+   921	                            </div>
+   922	                            
+   923	                            <Button 
+   924	                              onClick={handleValidateReport}
+   925	                              disabled={selectedAssessment?.status !== 'COMPLETED' || (localReport.finalText?.trim()?.length || 0) === 0 || savingState === 'saving'}
+   926	                              className="w-full max-w-sm mt-4 bg-[#0f172a] hover:bg-[#1e293b]"
+   927	                            >
+   928	                              Validar relatório
+   929	                            </Button>
+   930	                          </>
+   931	                        )}
+   932	                      </div>
+   933	
+   934	                    </div>
+   935	                  )}
+   936	                </CardContent>
+   937	                
+   938	                {/* Footer Nav */}
+   939	                <div className="bg-white border-t border-gray-200 p-4 flex justify-between items-center">
+   940	                  <div className="text-xs text-gray-500 flex items-center gap-4">
+   941	                    <span><strong className="text-gray-900">D:</strong> Desenvolveu</span>
+   942	                    <span><strong className="text-gray-900">ED:</strong> Em desenvolvimento</span>
+   943	                  </div>
+   944	                  <div className="flex gap-2">
+   945	                    <Button 
+   946	                      variant="outline" 
+   947	                      onClick={() => {
+   948	                        const idx = filteredStudents.findIndex(s => s.id === selectedStudentId);
+   949	                        if (idx > 0) setSelectedStudentId(filteredStudents[idx - 1].id);
+   950	                }
+   951	                      disabled={filteredStudents.findIndex(s => s.id === selectedStudentId) <= 0}
+   952	                    >
+   953	                      <ChevronLeft className="w-4 h-4 mr-1" /> Anterior
+   954	                    </Button>
+   955	                    <Button 
+   956	                      onClick={() => {
+   957	                        const idx = filteredStudents.findIndex(s => s.id === selectedStudentId);
+   958	                        if (idx < filteredStudents.length - 1) setSelectedStudentId(filteredStudents[idx + 1].id);
+   959	                }
+   960	                      disabled={filteredStudents.findIndex(s => s.id === selectedStudentId) >= filteredStudents.length - 1}
+   961	                    >
+   962	                      Próximo <ChevronRight className="w-4 h-4 ml-1" />
+   963	                    </Button>
+   964	                  </div>
+   965	                </div>
+   966	              </>
+   967	            ) : (
+   968	              <div className="flex-1 flex flex-col items-center justify-center text-gray-400">
+   969	                <AlertCircle className="w-12 h-12 mb-4 opacity-50" />
+   970	                <p>Selecione um aluno para avaliar.</p>
+   971	              </div>
+   972	            )}
+   973	          </Card>
+   974	
+   975	        </div>
+   976	      )}
+   977	    </div>
+   978	  );
+   979	}
