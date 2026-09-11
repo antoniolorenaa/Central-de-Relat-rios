@@ -377,11 +377,7 @@ export function registerReportsRoutes(app: express.Express, db: FirebaseFirestor
         
         const reportData = doc.data()!;
         
-        if (reportData.reportStatus === 'VALIDATED') {
-          return reportData; // already validated
-        }
-
-        if (expectedRevision === undefined || typeof expectedRevision !== 'number') {
+        if (expectedRevision === undefined || !Number.isSafeInteger(expectedRevision) || expectedRevision < 0) {
           throw new Error('Revisão esperada não fornecida ou inválida.');
         }
 
@@ -406,7 +402,20 @@ export function registerReportsRoutes(app: express.Express, db: FirebaseFirestor
         
         const assData = assDoc.data()!;
 
-        // CONFERÊNCIA DOS VÍNCULOS
+        // CONFERÊNCIA DOS VÍNCULOS DO RELATÓRIO
+        if (
+          reportData.enrollmentId !== enrollmentId ||
+          reportData.studentId !== enrollment.studentId ||
+          reportData.classId !== enrollment.classId ||
+          reportData.period !== period ||
+          reportData.schoolYear !== enrollment.schoolYear ||
+          reportData.matrixId !== assData.matrixId ||
+          reportData.matrixVersion !== assData.matrixVersion
+        ) {
+           throw new Error('Vínculos inconsistentes no relatório.');
+        }
+
+        // CONFERÊNCIA DOS VÍNCULOS DA AVALIAÇÃO
         if (
           assData.enrollmentId !== enrollmentId ||
           assData.studentId !== enrollment.studentId ||
@@ -415,6 +424,17 @@ export function registerReportsRoutes(app: express.Express, db: FirebaseFirestor
           assData.period !== period
         ) {
            throw new Error('Vínculos inconsistentes entre avaliação, matrícula e relatório.');
+        }
+
+        if (reportData.reportStatus === 'VALIDATED') {
+          // Já estava validado, as únicas operações aqui seriam de texto (o que deve ser bloqueado para alteração).
+          // Se os textos enviados divergem do persistido, não aceitar.
+          if (strengths !== undefined && strengths !== reportData.strengths) throw new Error('REPORT_ALREADY_VALIDATED');
+          if (developmentAspects !== undefined && developmentAspects !== reportData.developmentAspects) throw new Error('REPORT_ALREADY_VALIDATED');
+          if (additionalInformation !== undefined && additionalInformation !== reportData.additionalInformation) throw new Error('REPORT_ALREADY_VALIDATED');
+          if (finalText !== undefined && finalText !== reportData.finalText) throw new Error('REPORT_ALREADY_VALIDATED');
+          
+          return reportData;
         }
 
         if (assData.status !== 'COMPLETED') {
@@ -441,10 +461,6 @@ export function registerReportsRoutes(app: express.Express, db: FirebaseFirestor
 
         if (!reportData.finalText?.trim()) {
           throw new Error('MISSING_FINAL_TEXT');
-        }
-        
-        if (reportData.matrixId && reportData.matrixId !== assData.matrixId) {
-          throw new Error('MATRIX_MISMATCH');
         }
 
         reportData.reportStatus = 'VALIDATED';
@@ -477,12 +493,13 @@ export function registerReportsRoutes(app: express.Express, db: FirebaseFirestor
       res.json({ success: true, report: finalState });
     } catch (e: any) {
       if (e.message === 'CONCURRENCY_CONFLICT') return res.status(409).json({ error: 'Este relatório foi atualizado por outro usuário. Recarregue para continuar.' });
+      if (e.message === 'REPORT_ALREADY_VALIDATED') return res.status(400).json({ error: 'Relatório já validado não aceita alterações de texto.' });
       if (e.message === 'INVALID_ASSESSMENT_STATUS') return res.status(400).json({ error: 'Avaliação precisa estar COMPLETED.' });
       if (e.message === 'MISSING_FINAL_TEXT') return res.status(400).json({ error: 'Parecer não pode estar vazio.' });
       if (e.message === 'INVALID_TEXT_FIELD') return res.status(400).json({ error: 'Os campos textuais devem ser strings.' });
       if (e.message === 'O ID de avaliação diverge do vinculado ao relatório.') return res.status(400).json({ error: e.message });
+      if (e.message === 'Vínculos inconsistentes no relatório.') return res.status(400).json({ error: e.message });
       if (e.message === 'Vínculos inconsistentes entre avaliação, matrícula e relatório.') return res.status(400).json({ error: e.message });
-      if (e.message === 'MATRIX_MISMATCH') return res.status(400).json({ error: 'A matriz do relatório diverge da avaliação.' });
       if (e.message === 'Revisão esperada não fornecida ou inválida.') return res.status(400).json({ error: e.message });
       if (e.message === 'Avaliação vinculada inexistente.') return res.status(404).json({ error: e.message });
       if (e.message === 'Relatório sem avaliação vinculada.') return res.status(400).json({ error: e.message });
