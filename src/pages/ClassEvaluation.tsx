@@ -288,7 +288,7 @@ export function ClassEvaluation() {
       if (!res.ok) {
         if (res.status === 409) {
           setSavingError(data.error);
-          setSavingError(data.error);
+          setSavingState("error");
           fetchData();
           return;
         }
@@ -362,9 +362,9 @@ export function ClassEvaluation() {
         if (!res.ok) {
           if (res.status === 409) {
           setSavingError(data.error);
-          setSavingError(data.error);
-            fetchData();
-            return;
+          setSavingState("error");
+          fetchData();
+          return;
           }
 
           throw new Error(data.error || "Erro ao salvar relatório");
@@ -392,6 +392,7 @@ export function ClassEvaluation() {
 
   const handleTransferMatrix = async () => {
     if (!selectedStudent || !activeMatrix) return;
+    if (savingState === "saving") return;
     
     if (!selectedReport || typeof selectedReport.revision !== 'number') {
       setSavingError("O relatório precisa estar salvo (com revisão válida) antes de ser transferido. Salve alguma alteração primeiro.");
@@ -447,6 +448,7 @@ export function ClassEvaluation() {
 
   const handleValidateReport = async () => {
     if (!selectedStudent || !selectedReport) return;
+    if (savingState === "saving") return;
 
     setConfirmConfig({
       isOpen: true,
@@ -519,6 +521,7 @@ export function ClassEvaluation() {
 
   const handleReopenReport = async () => {
     if (!selectedStudent || !selectedReport) return;
+    if (savingState === "saving") return;
 
     setConfirmConfig({
       isOpen: true,
@@ -620,9 +623,25 @@ export function ClassEvaluation() {
   const selectedReport = selectedStudent ? getReport(selectedStudent.id) : null;
 
   // Sync local report state when selected student changes
+  const lastLoadedReportRef = useRef<string | null>(null);
+  
   useEffect(() => {
-    if (selectedReport) {
-      setLocalReport({
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (savingState === "saving" || savingState === "error") {
+        e.preventDefault();
+        e.returnValue = "";
+      }
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [savingState]);
+
+  useEffect(() => {
+    const currentReportKey = selectedReport ? selectedReport.id + '_' + selectedStudentId : 'none_' + selectedStudentId;
+    if (currentReportKey !== lastLoadedReportRef.current) {
+      lastLoadedReportRef.current = currentReportKey;
+      if (selectedReport) {
+        setLocalReport({
         strengths: selectedReport.strengths || "",
         developmentAspects: selectedReport.developmentAspects || "",
         additionalInformation: selectedReport.additionalInformation || "",
@@ -636,8 +655,11 @@ export function ClassEvaluation() {
         finalText: "",
       });
     }
-  }, [selectedStudentId, selectedReport]);
+    }
+  }, [selectedStudentId, period, selectedReport]);
 
+  const isAssessmentInconsistent = selectedReport && selectedReport.assessmentId && !selectedAssessment;
+  
   const stuMatrix = selectedAssessment
     ? selectedAssessment.matrixId === activeMatrix?.id
       ? activeMatrix

@@ -250,6 +250,10 @@ export function registerReportsRoutes(app: express.Express, db: FirebaseFirestor
 
       if (!period || !enrollmentId || !assessmentId) return res.status(400).json({ error: 'Parâmetros insuficientes.' });
       
+      if (expectedRevision === undefined || !Number.isSafeInteger(expectedRevision) || expectedRevision < 0) {
+        return res.status(400).json({ error: 'Revisão esperada não fornecida ou inválida.' });
+      }
+      
       const expectedReportId = `rep_${enrollmentId}_${period}`;
       if (reportId !== expectedReportId) return res.status(400).json({ error: 'ID de relatório incompatível.' });
 
@@ -292,14 +296,17 @@ export function registerReportsRoutes(app: express.Express, db: FirebaseFirestor
             throw new Error('REPORT_VALIDATED');
           }
           
-          if (expectedRevision !== undefined && reportData.revision !== expectedRevision) {
+          if (reportData.revision !== expectedRevision) {
             throw new Error('CONCURRENCY_CONFLICT');
           }
           
           reportData.revision = (reportData.revision || 0) + 1;
-          reportData.matrixVersion = matrixVersion;
-          reportData.matrixId = actualMatrixId;
+          // Do not change matrix/assessment links on normal save
+          if (reportData.assessmentId !== assessmentId || reportData.enrollmentId !== enrollmentId || reportData.period !== period) {
+            throw new Error('Vínculos inconsistentes no relatório.');
+          }
         } else {
+          if (expectedRevision !== 0) throw new Error('CONCURRENCY_CONFLICT');
           reportData = {
             id: reportId,
             studentId: enrollment.studentId,
@@ -352,6 +359,10 @@ export function registerReportsRoutes(app: express.Express, db: FirebaseFirestor
     try {
       const { reportId } = req.params;
       const { period, enrollmentId, assessmentId, expectedRevision, strengths, developmentAspects, additionalInformation, finalText } = req.body;
+      
+      if (expectedRevision === undefined || !Number.isSafeInteger(expectedRevision) || expectedRevision < 0) {
+        return res.status(400).json({ error: 'Revisão esperada não fornecida ou inválida.' });
+      }
       const uid = (req as any).user.uid;
       
       if (!period || !enrollmentId) return res.status(400).json({ error: 'Parâmetros insuficientes.' });
@@ -539,6 +550,10 @@ export function registerReportsRoutes(app: express.Express, db: FirebaseFirestor
     try {
       const { reportId } = req.params;
       const { period, enrollmentId, assessmentId, expectedRevision } = req.body;
+      
+      if (expectedRevision === undefined || !Number.isSafeInteger(expectedRevision) || expectedRevision < 0) {
+        return res.status(400).json({ error: 'Revisão esperada não fornecida ou inválida.' });
+      }
       const uid = (req as any).user.uid;
       
       if (!period || !enrollmentId || !assessmentId) return res.status(400).json({ error: 'Parâmetros insuficientes.' });
@@ -568,9 +583,9 @@ export function registerReportsRoutes(app: express.Express, db: FirebaseFirestor
           return reportData; 
         }
 
-        if (expectedRevision !== undefined && reportData.revision !== expectedRevision) {
-          throw new Error('CONCURRENCY_CONFLICT');
-        }
+        if (reportData.revision !== expectedRevision) {
+            throw new Error('CONCURRENCY_CONFLICT');
+          }
         
         // Check assessment to see if it should go back to READY_FOR_REVIEW or IN_PROGRESS
         const assDoc = await t.get(db.collection('assessments').doc(assessmentId));
