@@ -234,7 +234,6 @@ export function ClassEvaluation() {
       setSavingState("saved");
       setTimeout(() => setSavingState("idle"), 2000);
     } catch (e: any) {
-      setSavingState("error");
       setSavingError(e.message);
       if (e.message.includes("Recarregue")) {
         setSavingError(e.message);
@@ -289,7 +288,6 @@ export function ClassEvaluation() {
       if (!res.ok) {
         if (res.status === 409) {
           setSavingError(data.error);
-          setSavingState("error");
           setSavingError(data.error);
           fetchData();
           return;
@@ -312,7 +310,6 @@ export function ClassEvaluation() {
       setTimeout(() => setSavingState("idle"), 2000);
     } catch (err: any) {
       setSavingError(err.message);
-      setSavingState("error");
     }
   };
 
@@ -364,9 +361,8 @@ export function ClassEvaluation() {
 
         if (!res.ok) {
           if (res.status === 409) {
-            setSavingError(data.error);
-            setSavingState("error");
-            setSavingError(data.error);
+          setSavingError(data.error);
+          setSavingError(data.error);
             fetchData();
             return;
           }
@@ -390,13 +386,17 @@ export function ClassEvaluation() {
         setTimeout(() => setSavingState("idle"), 2000);
       } catch (err: any) {
         setSavingError(err.message);
-        setSavingState("error");
       }
     }, 1000);
   };
 
   const handleTransferMatrix = async () => {
     if (!selectedStudent || !activeMatrix) return;
+    
+    if (!selectedReport || typeof selectedReport.revision !== 'number') {
+      setSavingError("O relatório precisa estar salvo (com revisão válida) antes de ser transferido. Salve alguma alteração primeiro.");
+      return;
+    }
 
     setConfirmConfig({
       isOpen: true,
@@ -424,7 +424,7 @@ export function ClassEvaluation() {
                 enrollmentId: selectedStudent.enrollment.id,
                 period,
                 newMatrixId: activeMatrix.id,
-                newMatrixVersion: activeMatrix.version,
+                expectedRevision: selectedReport?.revision,
               }),
             },
           );
@@ -512,7 +512,6 @@ export function ClassEvaluation() {
           setTimeout(() => setSavingState("idle"), 2000);
         } catch (err: any) {
           setSavingError(err.message);
-          setSavingState("error");
         }
       },
     });
@@ -570,7 +569,6 @@ export function ClassEvaluation() {
           setTimeout(() => setSavingState("idle"), 2000);
         } catch (err: any) {
           setSavingError(err.message);
-          setSavingState("error");
         }
       },
     });
@@ -1326,6 +1324,15 @@ export function ClassEvaluation() {
             )}
           </Card>
         </div>
+      )}
+      {confirmConfig && (
+        <ConfirmModal
+          isOpen={confirmConfig.isOpen}
+          title={confirmConfig.title}
+          message={confirmConfig.message}
+          onConfirm={confirmConfig.onConfirm}
+          onCancel={() => setConfirmConfig(null)}
+        />
       )}
     </div>
   );
