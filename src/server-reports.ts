@@ -581,20 +581,32 @@ export function registerReportsRoutes(app: express.Express, db: FirebaseFirestor
         if (!doc.exists) throw new Error('Relatório não encontrado.');
         
         const reportData = doc.data()!;
+
+        if (reportData.revision !== expectedRevision) {
+          throw new Error('CONCURRENCY_CONFLICT');
+        }
+
+        if (reportData.assessmentId !== assessmentId) {
+          throw new Error('O ID de avaliação diverge do vinculado ao relatório.');
+        }
+
+        const assDoc = await t.get(db.collection('assessments').doc(reportData.assessmentId));
+        if (!assDoc.exists) {
+          throw new Error('Avaliação vinculada inexistente.');
+        }
         
+        const assData = assDoc.data()!;
+        if (assData.enrollmentId !== enrollmentId) {
+          throw new Error('Vínculos inconsistentes entre avaliação, matrícula e relatório.');
+        }
+
         if (reportData.reportStatus !== 'VALIDATED') {
           return reportData; 
         }
 
-        if (reportData.revision !== expectedRevision) {
-            throw new Error('CONCURRENCY_CONFLICT');
-          }
+        const assStatus = assData.status || 'NOT_STARTED';
         
-        // Check assessment to see if it should go back to READY_FOR_REVIEW or IN_PROGRESS
-        const assDoc = await t.get(db.collection('assessments').doc(assessmentId));
-        const assStatus = assDoc.exists ? assDoc.data()!.status : 'NOT_STARTED';
-        
-        reportData.reportStatus = determineReportStatus({ ...reportData, reportStatus: '' }, assStatus); // Pass empty string to avoid early return 'VALIDATED'
+        reportData.reportStatus = determineReportStatus({ ...reportData, reportStatus: '' }, assStatus); 
         reportData.revision = (reportData.revision || 0) + 1;
         reportData.updatedAt = Date.now();
         reportData.updatedBy = uid;
@@ -624,6 +636,11 @@ export function registerReportsRoutes(app: express.Express, db: FirebaseFirestor
       res.json({ success: true, report: finalState });
     } catch (e: any) {
       if (e.message === 'CONCURRENCY_CONFLICT') return res.status(409).json({ error: 'Este relatório foi atualizado por outro usuário. Recarregue para continuar.' });
+      if (e.message === 'O ID de avaliação diverge do vinculado ao relatório.') return res.status(400).json({ error: e.message });
+      if (e.message === 'Avaliação vinculada inexistente.') return res.status(404).json({ error: e.message });
+      if (e.message === 'Vínculos inconsistentes entre avaliação, matrícula e relatório.') return res.status(400).json({ error: e.message });
+      if (e.message === 'Relatório não encontrado.') return res.status(404).json({ error: e.message });
+      console.error(e);
       res.status(500).json({ error: e.message });
     }
   });

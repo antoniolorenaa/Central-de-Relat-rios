@@ -67,6 +67,10 @@ export function ClassEvaluation() {
     finalText: "",
   });
   const [isReportDirty, setIsReportDirty] = useState(false);
+  const localReportRef = useRef(localReport);
+  useEffect(() => {
+    localReportRef.current = localReport;
+  }, [localReport]);
   const [pendingStudentId, setPendingStudentId] = useState<string | null>(null);
 
   // Ref to hold the timeout for debounced saving
@@ -230,7 +234,7 @@ export function ClassEvaluation() {
         return copy;
       });
 
-      setSavingState("saved"); setIsReportDirty(false);
+      setSavingState("saved");
       setTimeout(() => setSavingState("idle"), 2000);
     } catch (e: any) {
       setSavingError(e.message);
@@ -250,13 +254,14 @@ export function ClassEvaluation() {
 
     setSavingState("saving");
     try {
+      const sentDraft = localReportRef.current;
       const payload = {
         period,
         matrixId: stuMatrix?.id,
-        strengths: localReport.strengths,
-        developmentAspects: localReport.developmentAspects,
-        additionalInformation: localReport.additionalInformation,
-        finalText: localReport.finalText,
+        strengths: sentDraft.strengths,
+        developmentAspects: sentDraft.developmentAspects,
+        additionalInformation: sentDraft.additionalInformation,
+        finalText: sentDraft.finalText,
         expectedRevision: selectedReport?.revision,
       };
 
@@ -284,12 +289,14 @@ export function ClassEvaluation() {
 
       if (!res.ok) {
         if (res.status === 409) {
-          setSavingError(data.error || "Conflito de edição detectado."); setSavingState("error"); fetchData(true);
+          setSavingError(data.error || "Conflito de edição detectado.");
+          setSavingState("error");
+          fetchData(true);
           return;
         }
-
         throw new Error(data.error || "Erro ao salvar relatório");
       }
+
       setReports((prev) => {
         const idx = prev.findIndex((r) => r.id === data.report.id);
         if (idx >= 0) {
@@ -301,7 +308,16 @@ export function ClassEvaluation() {
         }
       });
 
-      setSavingState("saved"); setIsReportDirty(false);
+      setSavingState("saved");
+      const currentDraft = localReportRef.current;
+      if (
+        currentDraft.strengths === sentDraft.strengths &&
+        currentDraft.developmentAspects === sentDraft.developmentAspects &&
+        currentDraft.additionalInformation === sentDraft.additionalInformation &&
+        currentDraft.finalText === sentDraft.finalText
+      ) {
+        setIsReportDirty(false);
+      }
       setTimeout(() => setSavingState("idle"), 2000);
     } catch (err: any) {
       setSavingError(err.message);
@@ -323,10 +339,14 @@ export function ClassEvaluation() {
 
     reportSaveTimeoutRef.current = setTimeout(async () => {
       try {
+        const sentDraft = localReportRef.current;
         const payload = {
           period,
           matrixId: stuMatrix?.id,
-          [field]: value,
+          strengths: sentDraft.strengths,
+          developmentAspects: sentDraft.developmentAspects,
+          additionalInformation: sentDraft.additionalInformation,
+          finalText: sentDraft.finalText,
           expectedRevision: selectedReport?.revision,
         };
 
@@ -339,8 +359,8 @@ export function ClassEvaluation() {
         const reportId =
           selectedReport?.id ||
           `rep_${selectedStudent.enrollment.id}_${period}`;
-        payload.assessmentId = assessmentId;
-        payload.enrollmentId = selectedStudent.enrollment.id;
+        (payload as any).assessmentId = assessmentId;
+        (payload as any).enrollmentId = selectedStudent.enrollment.id;
 
         const res = await fetch(`/api/academic/reports/${reportId}`, {
           method: "POST",
@@ -355,16 +375,14 @@ export function ClassEvaluation() {
 
         if (!res.ok) {
           if (res.status === 409) {
-          setSavingError(data.error);
-          setSavingState("error");
-          fetchData();
-          return;
+            setSavingError(data.error || "Conflito de edição detectado.");
+            setSavingState("error");
+            fetchData(true);
+            return;
           }
-
           throw new Error(data.error || "Erro ao salvar relatório");
         }
 
-        // Update reports list
         setReports((prev) => {
           const idx = prev.findIndex((r) => r.id === data.report.id);
           if (idx >= 0) {
@@ -376,7 +394,16 @@ export function ClassEvaluation() {
           }
         });
 
-        setSavingState("saved"); setIsReportDirty(false);
+        setSavingState("saved");
+        const currentDraft = localReportRef.current;
+        if (
+          currentDraft.strengths === sentDraft.strengths &&
+          currentDraft.developmentAspects === sentDraft.developmentAspects &&
+          currentDraft.additionalInformation === sentDraft.additionalInformation &&
+          currentDraft.finalText === sentDraft.finalText
+        ) {
+          setIsReportDirty(false);
+        }
         setTimeout(() => setSavingState("idle"), 2000);
       } catch (err: any) {
         setSavingError(err.message);
@@ -493,7 +520,12 @@ export function ClassEvaluation() {
 
           const data = await res.json();
           if (!res.ok) {
-            if (res.status === 409) fetchData();
+            if (res.status === 409) {
+              setSavingError(data.error || "Conflito de edição detectado.");
+              setSavingState("error");
+              fetchData(true);
+              return;
+            }
             throw new Error(data.error || "Erro ao validar relatório");
           }
           setReports((prev) => {
@@ -502,7 +534,17 @@ export function ClassEvaluation() {
             next[idx] = data.report;
             return next;
           });
-          setSavingState("saved"); setIsReportDirty(false);
+          setSavingState("saved");
+        const sentDraft = { strengths: payload.strengths, developmentAspects: payload.developmentAspects, additionalInformation: payload.additionalInformation, finalText: payload.finalText };
+        const currentDraft = localReportRef.current;
+        if (
+          currentDraft.strengths === sentDraft.strengths &&
+          currentDraft.developmentAspects === sentDraft.developmentAspects &&
+          currentDraft.additionalInformation === sentDraft.additionalInformation &&
+          currentDraft.finalText === sentDraft.finalText
+        ) {
+          setIsReportDirty(false);
+        }
           setTimeout(() => setSavingState("idle"), 2000);
         } catch (err: any) {
           setSavingError(err.message);
@@ -548,7 +590,12 @@ export function ClassEvaluation() {
           });
           const data = await res.json();
           if (!res.ok) {
-            if (res.status === 409) fetchData();
+            if (res.status === 409) {
+              setSavingError(data.error || "Conflito de edição detectado.");
+              setSavingState("error");
+              fetchData(true);
+              return;
+            }
             throw new Error(data.error || "Erro ao reabrir relatório");
           }
 
@@ -558,7 +605,7 @@ export function ClassEvaluation() {
             next[idx] = data.report;
             return next;
           });
-          setSavingState("saved"); setIsReportDirty(false);
+          setSavingState("saved");
           setTimeout(() => setSavingState("idle"), 2000);
         } catch (err: any) {
           setSavingError(err.message);
@@ -1016,13 +1063,37 @@ export function ClassEvaluation() {
                       </span>
                     )}
                     {savingState === "error" && (
-                      <span
-                        className="text-red-600 flex items-center"
-                        title={savingError}
-                      >
-                        <AlertCircle className="w-4 h-4 mr-1.5" /> Erro ao
-                        salvar
-                      </span>
+                      <div className="flex flex-col md:flex-row items-center gap-3">
+                        <span
+                          className="text-red-600 flex items-center font-medium"
+                          title={savingError}
+                        >
+                          <AlertCircle className="w-4 h-4 mr-1.5" /> {savingError || "Erro ao salvar"}
+                        </span>
+                        {isReportDirty && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 text-xs text-red-700 border-red-200 hover:bg-red-50"
+                            onClick={() => {
+                              if (window.confirm("Isso apagará suas edições não salvas e recarregará a versão do servidor. Confirma?")) {
+                                lastLoadedReportRef.current = 'force-reload-' + Date.now();
+                                setLocalReport({
+                                  strengths: selectedReport?.strengths || "",
+                                  developmentAspects: selectedReport?.developmentAspects || "",
+                                  additionalInformation: selectedReport?.additionalInformation || "",
+                                  finalText: selectedReport?.finalText || "",
+                                });
+                                setIsReportDirty(false);
+                                setSavingState("idle");
+                                setSavingError("");
+                              }
+                            }}
+                          >
+                            Recarregar (descartar local)
+                          </Button>
+                        )}
+                      </div>
                     )}
                   </div>
                 </CardHeader>
@@ -1037,107 +1108,26 @@ export function ClassEvaluation() {
                       <p>Não há matriz ativa para avaliar este aluno.</p>
                     </div>
                   ) : (
-                    <div className="max-w-3xl mx-auto space-y-8 pb-12">
-                      {/* D/ED Matrix */}
+                    <div className="space-y-8">
+                      {/* Avaliação por Critérios */}
                       <div>
-                        <h2 className="text-lg font-bold text-[#0f172a] mb-4 flex items-center">
-                          1. Avaliação D/ED
-                          {selectedAssessment?.status === "COMPLETED" && (
-                            <CheckCircle className="w-4 h-4 text-green-500 ml-2" />
-                          )}
+                        <h2 className="text-lg font-bold text-[#0f172a] mb-4">
+                          1. Avaliação por Critérios
                         </h2>
-                        <div className="space-y-6">
-                          {stuMatrix.categories.map((catName: string) => {
-                            const criteria = stuMatrix.criteria.filter(
-                              (c: any) => c.category === catName,
-                            );
-                            if (criteria.length === 0) return null;
-
+                        <div className="bg-white border border-gray-200 rounded-xl overflow-hidden divide-y divide-gray-100">
+                          {stuMatrix.criteria.map((crit: any) => {
+                            const ans = selectedAssessment?.answers?.[crit.id];
                             return (
                               <div
-                                key={catName}
-                                className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm"
+                                key={crit.id}
+                                className="p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 hover:bg-gray-50 transition-colors"
                               >
-                                <div className="bg-[#0f172a] px-5 py-3">
-                                  <h3 className="font-bold text-white text-sm uppercase tracking-wider">
-                                    {catName}
+                                <div className="flex-1">
+                                  <h3 className="font-medium text-gray-900 mb-1">
+                                    {crit.description}
                                   </h3>
                                 </div>
-
-                                <div className="divide-y divide-gray-100">
-                                  {criteria.map((crit: any) => {
-                                    const ans =
-                                      selectedAssessment?.answers?.[crit.id] ||
-                                      null;
-
-                                    return (
-                                      <div
-                                        key={crit.id}
-                                        className="p-5 flex flex-col md:flex-row md:items-start justify-between gap-6 hover:bg-gray-50/50 transition-colors"
-                                      >
-                                        <div className="flex-1">
-                                          <div className="flex items-center gap-2 mb-1.5">
-                                            <span className="text-xs font-bold bg-gray-100 text-gray-700 px-2 py-0.5 rounded">
-                                              {crit.code}
-                                            </span>
-                                            {crit.required && (
-                                              <span className="text-[10px] font-bold text-red-500 uppercase tracking-wider">
-                                                Obrigatório
-                                              </span>
-                                            )}
-                                          </div>
-                                          <p className="text-sm text-gray-900 leading-relaxed">
-                                            {crit.objective}
-                                          </p>
-                                        </div>
-
-                                        <div className="flex items-center gap-2 shrink-0 md:pt-2">
-                                          <button
-                                            onClick={() =>
-                                              handleAnswer(
-                                                selectedStudent.enrollment.id,
-                                                crit.id,
-                                                ans === "D" ? null : "D",
-                                                stuMatrix,
-                                              )
-                                            }
-                                            className={`w-14 h-10 rounded-md font-bold text-sm border transition-all ${
-                                              ans === "D"
-                                                ? "bg-blue-600 text-white border-blue-600 ring-2 ring-blue-600/20 ring-offset-1"
-                                                : "bg-white text-gray-600 border-gray-300 hover:border-blue-400 hover:bg-blue-50"
-                                            }`}
-                                            disabled={
-                                              selectedReport?.reportStatus ===
-                                              "VALIDATED"
-                                            }
-                                          >
-                                            D
-                                          </button>
-                                          <button
-                                            onClick={() =>
-                                              handleAnswer(
-                                                selectedStudent.enrollment.id,
-                                                crit.id,
-                                                ans === "ED" ? null : "ED",
-                                                stuMatrix,
-                                              )
-                                            }
-                                            className={`w-14 h-10 rounded-md font-bold text-sm border transition-all ${
-                                              ans === "ED"
-                                                ? "bg-amber-500 text-white border-amber-500 ring-2 ring-amber-500/20 ring-offset-1"
-                                                : "bg-white text-gray-600 border-gray-300 hover:border-amber-400 hover:bg-amber-50"
-                                            }`}
-                                            disabled={
-                                              selectedReport?.reportStatus ===
-                                              "VALIDATED"
-                                            }
-                                          >
-                                            ED
-                                          </button>
-                                        </div>
-                                      </div>
-                                    );
-                                  })}
+                                <div className="flex items-center gap-2">
                                 </div>
                               </div>
                             );
