@@ -681,8 +681,6 @@ export function ClassEvaluation() {
 
   
   const handleStudentSelection = (newStudentId: string) => {
-    if (reportSaveTimeoutRef.current) clearTimeout(reportSaveTimeoutRef.current);
-    saveTokenRef.current++;
     if (isReportDirty && savingState === "error") {
       if (!window.confirm("Você tem alterações com erro de salvamento. Deseja descartá-las e mudar de aluno?")) {
         return;
@@ -692,6 +690,9 @@ export function ClassEvaluation() {
         return;
       }
     }
+
+    if (reportSaveTimeoutRef.current) clearTimeout(reportSaveTimeoutRef.current);
+    saveTokenRef.current++;
     setIsReportDirty(false);
     setSavingState("idle");
     setSavingError("");
