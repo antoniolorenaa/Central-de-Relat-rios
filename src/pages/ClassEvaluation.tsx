@@ -68,6 +68,7 @@ export function ClassEvaluation() {
   });
   const [isReportDirty, setIsReportDirty] = useState(false);
   const localReportRef = useRef(localReport);
+  const saveTokenRef = useRef(0);
   useEffect(() => {
     localReportRef.current = localReport;
   }, [localReport]);
@@ -253,6 +254,7 @@ export function ClassEvaluation() {
       clearTimeout(reportSaveTimeoutRef.current);
 
     setSavingState("saving");
+    const myToken = ++saveTokenRef.current;
     try {
       const sentDraft = localReportRef.current;
       const payload = {
@@ -287,6 +289,21 @@ export function ClassEvaluation() {
 
       const data = await res.json();
 
+      if (myToken !== saveTokenRef.current) {
+        if (res.ok) {
+          setReports((prev) => {
+            const idx = prev.findIndex((r) => r.id === data.report.id);
+            if (idx >= 0) {
+              const next = [...prev];
+              next[idx] = data.report;
+              return next;
+            }
+            return [...prev, data.report];
+          });
+        }
+        return;
+      }
+
       if (!res.ok) {
         if (res.status === 409) {
           setSavingError(data.error || "Conflito de edição detectado.");
@@ -318,7 +335,9 @@ export function ClassEvaluation() {
       ) {
         setIsReportDirty(false);
       }
-      setTimeout(() => setSavingState("idle"), 2000);
+      setTimeout(() => {
+        if (myToken === saveTokenRef.current) setSavingState("idle");
+      }, 2000);
     } catch (err: any) {
       setSavingError(err.message);
     }
@@ -328,7 +347,8 @@ export function ClassEvaluation() {
     if (!selectedStudent || selectedReport?.reportStatus === "VALIDATED")
       return;
 
-    setLocalReport((prev) => ({ ...prev, [field]: value }));
+    const nextDraft = { ...localReport, [field]: value };
+    setLocalReport(nextDraft);
     setIsReportDirty(true);
 
     setSavingState("saving");
@@ -337,30 +357,32 @@ export function ClassEvaluation() {
     if (reportSaveTimeoutRef.current)
       clearTimeout(reportSaveTimeoutRef.current);
 
+    const myToken = ++saveTokenRef.current;
+    const savingStudentId = selectedStudent.id;
+    const savingEnrollmentId = selectedStudent.enrollment.id;
+
     reportSaveTimeoutRef.current = setTimeout(async () => {
       try {
-        const sentDraft = localReportRef.current;
         const payload = {
           period,
           matrixId: stuMatrix?.id,
-          strengths: sentDraft.strengths,
-          developmentAspects: sentDraft.developmentAspects,
-          additionalInformation: sentDraft.additionalInformation,
-          finalText: sentDraft.finalText,
+          strengths: nextDraft.strengths,
+          developmentAspects: nextDraft.developmentAspects,
+          additionalInformation: nextDraft.additionalInformation,
+          finalText: nextDraft.finalText,
           expectedRevision: selectedReport?.revision,
         };
 
         const token = await user?.getIdToken();
-
-        const currentAss = getAssessment(selectedStudent.id);
+        const currentAss = getAssessment(savingStudentId);
         const assessmentId =
           currentAss?.id ||
-          `ass_${selectedStudent.enrollment.id}_${stuMatrix?.id}_${period}`;
+          `ass_${savingEnrollmentId}_${stuMatrix?.id}_${period}`;
         const reportId =
           selectedReport?.id ||
-          `rep_${selectedStudent.enrollment.id}_${period}`;
+          `rep_${savingEnrollmentId}_${period}`;
         (payload as any).assessmentId = assessmentId;
-        (payload as any).enrollmentId = selectedStudent.enrollment.id;
+        (payload as any).enrollmentId = savingEnrollmentId;
 
         const res = await fetch(`/api/academic/reports/${reportId}`, {
           method: "POST",
@@ -372,6 +394,22 @@ export function ClassEvaluation() {
         });
 
         const data = await res.json();
+
+        // If context changed or discarded, update cache but don't touch UI state
+        if (myToken !== saveTokenRef.current) {
+          if (res.ok) {
+            setReports((prev) => {
+              const idx = prev.findIndex((r) => r.id === data.report.id);
+              if (idx >= 0) {
+                const next = [...prev];
+                next[idx] = data.report;
+                return next;
+              }
+              return [...prev, data.report];
+            });
+          }
+          return;
+        }
 
         if (!res.ok) {
           if (res.status === 409) {
@@ -397,16 +435,18 @@ export function ClassEvaluation() {
         setSavingState("saved");
         const currentDraft = localReportRef.current;
         if (
-          currentDraft.strengths === sentDraft.strengths &&
-          currentDraft.developmentAspects === sentDraft.developmentAspects &&
-          currentDraft.additionalInformation === sentDraft.additionalInformation &&
-          currentDraft.finalText === sentDraft.finalText
+          currentDraft.strengths === nextDraft.strengths &&
+          currentDraft.developmentAspects === nextDraft.developmentAspects &&
+          currentDraft.additionalInformation === nextDraft.additionalInformation &&
+          currentDraft.finalText === nextDraft.finalText
         ) {
           setIsReportDirty(false);
         }
-        setTimeout(() => setSavingState("idle"), 2000);
+        setTimeout(() => {
+          if (myToken === saveTokenRef.current) setSavingState("idle");
+        }, 2000);
       } catch (err: any) {
-        setSavingError(err.message);
+        if (myToken === saveTokenRef.current) setSavingError(err.message);
       }
     }, 1000);
   };
@@ -641,6 +681,8 @@ export function ClassEvaluation() {
 
   
   const handleStudentSelection = (newStudentId: string) => {
+    if (reportSaveTimeoutRef.current) clearTimeout(reportSaveTimeoutRef.current);
+    saveTokenRef.current++;
     if (isReportDirty && savingState === "error") {
       if (!window.confirm("Você tem alterações com erro de salvamento. Deseja descartá-las e mudar de aluno?")) {
         return;
@@ -1077,6 +1119,8 @@ export function ClassEvaluation() {
                             className="h-7 text-xs text-red-700 border-red-200 hover:bg-red-50"
                             onClick={() => {
                               if (window.confirm("Isso apagará suas edições não salvas e recarregará a versão do servidor. Confirma?")) {
+    if (reportSaveTimeoutRef.current) clearTimeout(reportSaveTimeoutRef.current);
+    saveTokenRef.current++;
                                 lastLoadedReportRef.current = 'force-reload-' + Date.now();
                                 setLocalReport({
                                   strengths: selectedReport?.strengths || "",
@@ -1123,11 +1167,73 @@ export function ClassEvaluation() {
                                 className="p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 hover:bg-gray-50 transition-colors"
                               >
                                 <div className="flex-1">
+                                  <div className="flex items-center gap-2 mb-1">
+                                    {crit.category && (
+                                      <span className="bg-gray-100 text-gray-600 text-xs px-2 py-0.5 rounded font-medium">
+                                        {crit.category}
+                                      </span>
+                                    )}
+                                    {crit.code && (
+                                      <span className="text-gray-400 text-xs font-mono">
+                                        {crit.code}
+                                      </span>
+                                    )}
+                                    {crit.required && (
+                                      <span className="text-red-500 text-xs font-bold" title="Obrigatório">*</span>
+                                    )}
+                                  </div>
                                   <h3 className="font-medium text-gray-900 mb-1">
-                                    {crit.description}
+                                    {crit.objective || crit.description}
                                   </h3>
+                                  {crit.objective && crit.description && (
+                                    <p className="text-sm text-gray-500">
+                                      {crit.description}
+                                    </p>
+                                  )}
                                 </div>
                                 <div className="flex items-center gap-2">
+                                  <button
+                                    onClick={() =>
+                                      handleAnswer(
+                                        selectedStudent.enrollment.id,
+                                        crit.id,
+                                        ans === "D" ? null : "D",
+                                        stuMatrix,
+                                      )
+                                    }
+                                    className={`w-14 h-10 rounded-md font-bold text-sm border transition-all ${
+                                      ans === "D"
+                                        ? "bg-blue-600 text-white border-blue-600 ring-2 ring-blue-600/20 ring-offset-1"
+                                        : "bg-white text-gray-600 border-gray-300 hover:border-blue-400 hover:bg-blue-50"
+                                    }`}
+                                    disabled={
+                                      selectedReport?.reportStatus ===
+                                      "VALIDATED"
+                                    }
+                                  >
+                                    D
+                                  </button>
+                                  <button
+                                    onClick={() =>
+                                      handleAnswer(
+                                        selectedStudent.enrollment.id,
+                                        crit.id,
+                                        ans === "ED" ? null : "ED",
+                                        stuMatrix,
+                                      )
+                                    }
+                                    className={`w-14 h-10 rounded-md font-bold text-sm border transition-all ${
+                                      ans === "ED"
+                                        ? "bg-amber-500 text-white border-amber-500 ring-2 ring-amber-500/20 ring-offset-1"
+                                        : "bg-white text-gray-600 border-gray-300 hover:border-amber-400 hover:bg-amber-50"
+                                    }`}
+                                    disabled={
+                                      selectedReport?.reportStatus ===
+                                      "VALIDATED"
+                                    }
+                                  >
+                                    ED
+                                  </button>
                                 </div>
                               </div>
                             );

@@ -11,5 +11,5 @@ const testCode = `
   });
 `;
 
-code = code.replace(/console\.log\([^)]*Results:[^)]*\);/, testCode + '\n  $&');
+code = code.replace(/console\.log\(\`\\nResults:/, testCode + '\n  console.log(`\\nResults:');
 fs.writeFileSync('tests/test-consolidated.ts', code);
