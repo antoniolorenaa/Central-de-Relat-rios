@@ -66,6 +66,8 @@ export function ClassEvaluation() {
     additionalInformation: "",
     finalText: "",
   });
+  const [isReportDirty, setIsReportDirty] = useState(false);
+  const [pendingStudentId, setPendingStudentId] = useState<string | null>(null);
 
   // Ref to hold the timeout for debounced saving
   const reportSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -74,15 +76,13 @@ export function ClassEvaluation() {
     fetchData();
   }, [classId, period]);
 
-  const fetchData = async () => {
+  const fetchData = async (preserveSelection: boolean = false) => {
     setLoading(true);
     setError("");
     setActiveMatrix(null);
     setHistoricalMatrices({});
     setConfigConflict(false);
-    setStudents([]);
-    setAssessments([]);
-    setSelectedStudentId(null);
+    if (!preserveSelection) { setStudents([]); setAssessments([]); setSelectedStudentId(null); }
 
     try {
       const token = await user?.getIdToken();
@@ -113,9 +113,7 @@ export function ClassEvaluation() {
       );
       setStudents(sortedStudents);
 
-      if (sortedStudents.length > 0) {
-        setSelectedStudentId(sortedStudents[0].id);
-      }
+      if (sortedStudents.length > 0 && (!preserveSelection || !selectedStudentId)) { setSelectedStudentId(sortedStudents[0].id); }
 
       // 2. Get Evaluation Data (Assessments, Active Matrix, Historical Matrices)
       const resEval = await fetch(
@@ -161,7 +159,8 @@ export function ClassEvaluation() {
     setSavingState("saving");
     setSavingError("");
 
-    const currentAss = assessments.find((a) => a.enrollmentId === enrollmentId);
+    const __stu = students.find(s => s.enrollment.id === enrollmentId);
+    const currentAss = __stu ? getAssessment(__stu.id) : null;
     let expectedRevision = currentAss?.revision;
 
     // Explicitly calculate the ID for the endpoint mapping
@@ -170,7 +169,7 @@ export function ClassEvaluation() {
 
     setAssessments((prev) => {
       const copy = [...prev];
-      const idx = copy.findIndex((a) => a.enrollmentId === enrollmentId);
+      const idx = currentAss ? copy.findIndex(a => a.id === currentAss.id) : -1;
 
       if (idx >= 0) {
         const item = { ...copy[idx] };
@@ -222,7 +221,7 @@ export function ClassEvaluation() {
       // Update with source of truth
       setAssessments((prev) => {
         const copy = [...prev];
-        const idx = copy.findIndex((a) => a.enrollmentId === enrollmentId);
+        const idx = currentAss ? copy.findIndex(a => a.id === currentAss.id) : -1;
         if (idx >= 0) {
           copy[idx] = data.assessment;
         } else {
@@ -231,7 +230,7 @@ export function ClassEvaluation() {
         return copy;
       });
 
-      setSavingState("saved");
+      setSavingState("saved"); setIsReportDirty(false);
       setTimeout(() => setSavingState("idle"), 2000);
     } catch (e: any) {
       setSavingError(e.message);
@@ -243,7 +242,7 @@ export function ClassEvaluation() {
     }
   };
 
-  const saveReportNow = async () => {
+  const saveReportNow = async () => { if (isAssessmentInconsistent) return;
     if (!selectedStudent || selectedReport?.reportStatus === "VALIDATED")
       return;
     if (reportSaveTimeoutRef.current)
@@ -263,9 +262,7 @@ export function ClassEvaluation() {
 
       const token = await user?.getIdToken();
 
-      const currentAss = assessments.find(
-        (a) => a.enrollmentId === selectedStudent.enrollment.id,
-      );
+      const currentAss = getAssessment(selectedStudent.id);
       const assessmentId =
         currentAss?.id ||
         `ass_${selectedStudent.enrollment.id}_${stuMatrix?.id}_${period}`;
@@ -287,9 +284,7 @@ export function ClassEvaluation() {
 
       if (!res.ok) {
         if (res.status === 409) {
-          setSavingError(data.error);
-          setSavingState("error");
-          fetchData();
+          setSavingError(data.error || "Conflito de edição detectado."); setSavingState("error"); fetchData(true);
           return;
         }
 
@@ -306,7 +301,7 @@ export function ClassEvaluation() {
         }
       });
 
-      setSavingState("saved");
+      setSavingState("saved"); setIsReportDirty(false);
       setTimeout(() => setSavingState("idle"), 2000);
     } catch (err: any) {
       setSavingError(err.message);
@@ -318,6 +313,7 @@ export function ClassEvaluation() {
       return;
 
     setLocalReport((prev) => ({ ...prev, [field]: value }));
+    setIsReportDirty(true);
 
     setSavingState("saving");
     setSavingError("");
@@ -336,9 +332,7 @@ export function ClassEvaluation() {
 
         const token = await user?.getIdToken();
 
-        const currentAss = assessments.find(
-          (a) => a.enrollmentId === selectedStudent.enrollment.id,
-        );
+        const currentAss = getAssessment(selectedStudent.id);
         const assessmentId =
           currentAss?.id ||
           `ass_${selectedStudent.enrollment.id}_${stuMatrix?.id}_${period}`;
@@ -382,7 +376,7 @@ export function ClassEvaluation() {
           }
         });
 
-        setSavingState("saved");
+        setSavingState("saved"); setIsReportDirty(false);
         setTimeout(() => setSavingState("idle"), 2000);
       } catch (err: any) {
         setSavingError(err.message);
@@ -446,7 +440,7 @@ export function ClassEvaluation() {
     });
   };
 
-  const handleValidateReport = async () => {
+  const handleValidateReport = async () => { if (isAssessmentInconsistent) return;
     if (!selectedStudent || !selectedReport) return;
     if (savingState === "saving") return;
 
@@ -466,9 +460,7 @@ export function ClassEvaluation() {
         try {
           const token = await user?.getIdToken();
 
-          const currentAss = assessments.find(
-            (a) => a.enrollmentId === selectedStudent.enrollment.id,
-          );
+          const currentAss = getAssessment(selectedStudent.id);
           const assessmentId =
             currentAss?.id ||
             `ass_${selectedStudent.enrollment.id}_${stuMatrix?.id}_${period}`;
@@ -510,7 +502,7 @@ export function ClassEvaluation() {
             next[idx] = data.report;
             return next;
           });
-          setSavingState("saved");
+          setSavingState("saved"); setIsReportDirty(false);
           setTimeout(() => setSavingState("idle"), 2000);
         } catch (err: any) {
           setSavingError(err.message);
@@ -534,9 +526,7 @@ export function ClassEvaluation() {
         setSavingState("saving");
         try {
           const token = await user?.getIdToken();
-          const currentAss = assessments.find(
-            (a) => a.enrollmentId === selectedStudent.enrollment.id,
-          );
+          const currentAss = getAssessment(selectedStudent.id);
           const assessmentId =
             currentAss?.id ||
             `ass_${selectedStudent.enrollment.id}_${stuMatrix?.id}_${period}`;
@@ -568,7 +558,7 @@ export function ClassEvaluation() {
             next[idx] = data.report;
             return next;
           });
-          setSavingState("saved");
+          setSavingState("saved"); setIsReportDirty(false);
           setTimeout(() => setSavingState("idle"), 2000);
         } catch (err: any) {
           setSavingError(err.message);
@@ -580,13 +570,43 @@ export function ClassEvaluation() {
   const getAssessment = (studentId: string) => {
     const stu = students.find((s) => s.id === studentId);
     if (!stu) return null;
-    return assessments.find((a) => a.enrollmentId === stu.enrollment.id);
+
+    const rep = reports.find((r) => r.enrollmentId === stu.enrollment.id && r.period === period);
+    if (rep && rep.assessmentId) {
+      return assessments.find((a) => a.id === rep.assessmentId) || null;
+    }
+
+    const matrix = activeMatrix;
+    if (!matrix) return null;
+    return assessments.find(
+      (a) =>
+        a.enrollmentId === stu.enrollment.id &&
+        a.matrixId === matrix.id &&
+        a.period === period
+    ) || null;
   };
 
   const getReport = (studentId: string) => {
     const stu = students.find((s) => s.id === studentId);
     if (!stu) return null;
     return reports.find((r) => r.enrollmentId === stu.enrollment.id);
+  };
+
+  
+  const handleStudentSelection = (newStudentId: string) => {
+    if (isReportDirty && savingState === "error") {
+      if (!window.confirm("Você tem alterações com erro de salvamento. Deseja descartá-las e mudar de aluno?")) {
+        return;
+      }
+    } else if (isReportDirty && savingState === "saving") {
+      if (!window.confirm("Salvamento em andamento. Deseja forçar a mudança de aluno e possivelmente perder alterações?")) {
+        return;
+      }
+    }
+    setIsReportDirty(false);
+    setSavingState("idle");
+    setSavingError("");
+    setSelectedStudentId(newStudentId);
   };
 
   const filteredStudents = useMemo(() => {
@@ -884,7 +904,7 @@ export function ClassEvaluation() {
                     return (
                       <li key={stu.id}>
                         <button
-                          onClick={() => setSelectedStudentId(stu.id)}
+                          onClick={() => handleStudentSelection(stu.id)}
                           className={`w-full text-left px-4 py-3 hover:bg-gray-50 transition-colors flex items-center justify-between ${isSelected ? "bg-blue-50/50 border-l-4 border-blue-600" : "border-l-4 border-transparent"}`}
                         >
                           <div className="truncate pr-2">
@@ -1308,7 +1328,7 @@ export function ClassEvaluation() {
                           (s) => s.id === selectedStudentId,
                         );
                         if (idx > 0)
-                          setSelectedStudentId(filteredStudents[idx - 1].id);
+                          handleStudentSelection(filteredStudents[idx - 1].id);
                       }}
                       disabled={
                         filteredStudents.findIndex(
@@ -1324,7 +1344,7 @@ export function ClassEvaluation() {
                           (s) => s.id === selectedStudentId,
                         );
                         if (idx < filteredStudents.length - 1)
-                          setSelectedStudentId(filteredStudents[idx + 1].id);
+                          handleStudentSelection(filteredStudents[idx + 1].id);
                       }}
                       disabled={
                         filteredStudents.findIndex(

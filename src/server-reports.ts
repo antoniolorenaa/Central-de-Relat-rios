@@ -349,6 +349,9 @@ export function registerReportsRoutes(app: express.Express, db: FirebaseFirestor
       if (e.message === 'REPORT_VALIDATED') {
         return res.status(400).json({ error: 'Este relatório já foi validado e não pode ser editado.' });
       }
+      if (e.message === 'Vínculos inconsistentes no relatório.' || e.message === 'Revisão esperada não fornecida ou inválida.') {
+        return res.status(400).json({ error: e.message });
+      }
       console.error(e);
       res.status(500).json({ error: e.message });
     }
