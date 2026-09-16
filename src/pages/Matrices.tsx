@@ -2,7 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { useAuth } from '../lib/auth';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
-import { Loader2, Plus, Upload, CheckCircle, FileText, AlertCircle, Archive } from 'lucide-react';
+import { ConfirmModal } from '../components/ui/ConfirmModal';
+import { Loader2, Plus, Upload, CheckCircle, FileText, AlertCircle, Archive, Trash2 } from 'lucide-react';
 import type { Matrix } from '../types';
 
 export function Matrices() {
@@ -23,11 +24,38 @@ export function Matrices() {
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState('');
   const [confirmPublishId, setConfirmPublishId] = useState<string | null>(null);
+  const [matrixToDelete, setMatrixToDelete] = useState<Matrix | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   useEffect(() => {
     fetchMeta();
     fetchMatrices();
   }, []);
+
+  
+  const handleDeleteMatrix = async () => {
+    if (!matrixToDelete || isDeleting) return;
+    setIsDeleting(true);
+    try {
+      const token = await user?.getIdToken();
+      const res = await fetch(`/api/admin/matrices/${matrixToDelete.id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Erro ao excluir');
+      
+      setMatrices(prev => prev.filter(m => m.id !== matrixToDelete.id));
+      setMatrixToDelete(null);
+    } catch(err: any) {
+      setError(err.message);
+      setMatrixToDelete(null);
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  
 
   const fetchMeta = async () => {
     try {
@@ -285,6 +313,20 @@ export function Matrices() {
                             </Button>
                           </div>
                         )}
+
+                        {matrix.status === 'DRAFT' && confirmPublishId !== matrix.id && (
+                          <Button variant="outline" className="text-red-600 border-red-200 hover:bg-red-50 whitespace-nowrap ml-2" onClick={() => setMatrixToDelete(matrix)}>
+                            <Trash2 className="w-4 h-4 mr-2" />
+                            Excluir rascunho
+                          </Button>
+                        )}
+
+                        {matrix.status === 'DRAFT' && confirmPublishId !== matrix.id && (
+                          <Button variant="outline" className="text-red-600 border-red-200 hover:bg-red-50 whitespace-nowrap" onClick={() => setMatrixToDelete(matrix)}>
+                            <Trash2 className="w-4 h-4 mr-2" />
+                            Excluir rascunho
+                          </Button>
+                        )}
                         {matrix.status === 'PUBLISHED' && (
                           <div className="text-sm text-green-700 font-medium flex items-center">
                             <CheckCircle className="w-4 h-4 mr-1" /> Ativa
@@ -304,7 +346,20 @@ export function Matrices() {
           </Card>
         </div>
 
-      </div>
+            </div>
+
+      <ConfirmModal
+        isOpen={!!matrixToDelete}
+        title="Excluir Rascunho"
+        message={matrixToDelete ? `Deseja realmente excluir o rascunho da matriz "${meta.gradeLevels?.find((g: any) => g.id === matrixToDelete.gradeLevelId)?.name || matrixToDelete.gradeLevelId}" (Ano: ${matrixToDelete.schoolYear}, Período: ${matrixToDelete.period}, Marca: ${meta.brands?.find((b: any) => b.id === matrixToDelete.brandId)?.name || matrixToDelete.brandId}, Programa: ${meta.programs?.find((p: any) => p.id === matrixToDelete.programId)?.name || matrixToDelete.programId})?` : ''}
+        confirmText={isDeleting ? "Excluindo..." : "Sim, Excluir"}
+        cancelText="Cancelar"
+        onConfirm={handleDeleteMatrix}
+        onCancel={() => {
+          if (!isDeleting) setMatrixToDelete(null);
+        }}
+      />
     </div>
   );
 }
+
