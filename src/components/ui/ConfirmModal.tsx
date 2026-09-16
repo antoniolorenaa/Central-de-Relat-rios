@@ -1,5 +1,6 @@
 import React from 'react';
 import { Button } from './Button';
+import { AlertCircle } from 'lucide-react';
 
 interface ConfirmModalProps {
   isOpen: boolean;
@@ -9,9 +10,21 @@ interface ConfirmModalProps {
   onCancel: () => void;
   confirmText?: string;
   cancelText?: string;
+  isLoading?: boolean;
+  error?: string;
 }
 
-export function ConfirmModal({ isOpen, title, message, onConfirm, onCancel, confirmText = 'Confirmar', cancelText = 'Cancelar' }: ConfirmModalProps) {
+export function ConfirmModal({ 
+  isOpen, 
+  title, 
+  message, 
+  onConfirm, 
+  onCancel, 
+  confirmText = 'Confirmar', 
+  cancelText = 'Cancelar',
+  isLoading = false,
+  error
+}: ConfirmModalProps) {
   if (!isOpen) return null;
 
   return (
@@ -22,10 +35,16 @@ export function ConfirmModal({ isOpen, title, message, onConfirm, onCancel, conf
         </div>
         <div className="px-6 py-6 text-gray-700">
           {message}
+          {error && (
+            <div className="mt-4 p-3 bg-red-50 text-red-700 rounded-md flex items-start gap-2 text-sm border border-red-100">
+              <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+              <span>{error}</span>
+            </div>
+          )}
         </div>
         <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-3 bg-gray-50">
-          <Button variant="outline" onClick={onCancel}>{cancelText}</Button>
-          <Button onClick={onConfirm} className="bg-blue-600 hover:bg-blue-700 text-white">{confirmText}</Button>
+          <Button variant="outline" onClick={onCancel} disabled={isLoading}>{cancelText}</Button>
+          <Button onClick={onConfirm} className="bg-blue-600 hover:bg-blue-700 text-white" disabled={isLoading}>{confirmText}</Button>
         </div>
       </div>
     </div>

@@ -26,6 +26,7 @@ export function Matrices() {
   const [confirmPublishId, setConfirmPublishId] = useState<string | null>(null);
   const [matrixToDelete, setMatrixToDelete] = useState<Matrix | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
 
   useEffect(() => {
     fetchMeta();
@@ -37,6 +38,7 @@ export function Matrices() {
     if (!matrixToDelete || isDeleting) return;
     setIsDeleting(true);
     try {
+      setDeleteError('');
       const token = await user?.getIdToken();
       const res = await fetch(`/api/admin/matrices/${matrixToDelete.id}`, {
         method: 'DELETE',
@@ -47,9 +49,9 @@ export function Matrices() {
       
       setMatrices(prev => prev.filter(m => m.id !== matrixToDelete.id));
       setMatrixToDelete(null);
+      setDeleteError('');
     } catch(err: any) {
-      setError(err.message);
-      setMatrixToDelete(null);
+      setDeleteError(err.message);
     } finally {
       setIsDeleting(false);
     }
@@ -295,13 +297,18 @@ export function Matrices() {
                             <div className="flex items-center"><FileText className="w-4 h-4 mr-1" /> {matrix.criteria.length} critérios</div>
                             <div className="flex items-center"><FileText className="w-4 h-4 mr-1" /> {matrix.categories.length} categorias</div>
                           </div>
-                        </div>
-
+                        </div>                      <div className="flex flex-wrap items-center gap-2 mt-4 sm:mt-0 justify-end">
                         {matrix.status === 'DRAFT' && confirmPublishId !== matrix.id && (
-                          <Button variant="outline" className="text-green-700 border-green-200 hover:bg-green-50 whitespace-nowrap" onClick={() => setConfirmPublishId(matrix.id)}>
-                            <CheckCircle className="w-4 h-4 mr-2" />
-                            Publicar
-                          </Button>
+                          <>
+                            <Button variant="outline" className="text-green-700 border-green-200 hover:bg-green-50 whitespace-nowrap" onClick={() => setConfirmPublishId(matrix.id)}>
+                              <CheckCircle className="w-4 h-4 mr-2" />
+                              Publicar
+                            </Button>
+                            <Button variant="outline" className="text-red-600 border-red-200 hover:bg-red-50 whitespace-nowrap" onClick={() => { setDeleteError(''); setMatrixToDelete(matrix); }}>
+                              <Trash2 className="w-4 h-4 mr-2" />
+                              Excluir rascunho
+                            </Button>
+                          </>
                         )}
                         {matrix.status === 'DRAFT' && confirmPublishId === matrix.id && (
                           <div className="flex flex-col sm:flex-row gap-2">
@@ -312,20 +319,6 @@ export function Matrices() {
                               Confirmar Publicação
                             </Button>
                           </div>
-                        )}
-
-                        {matrix.status === 'DRAFT' && confirmPublishId !== matrix.id && (
-                          <Button variant="outline" className="text-red-600 border-red-200 hover:bg-red-50 whitespace-nowrap ml-2" onClick={() => setMatrixToDelete(matrix)}>
-                            <Trash2 className="w-4 h-4 mr-2" />
-                            Excluir rascunho
-                          </Button>
-                        )}
-
-                        {matrix.status === 'DRAFT' && confirmPublishId !== matrix.id && (
-                          <Button variant="outline" className="text-red-600 border-red-200 hover:bg-red-50 whitespace-nowrap" onClick={() => setMatrixToDelete(matrix)}>
-                            <Trash2 className="w-4 h-4 mr-2" />
-                            Excluir rascunho
-                          </Button>
                         )}
                         {matrix.status === 'PUBLISHED' && (
                           <div className="text-sm text-green-700 font-medium flex items-center">
@@ -338,6 +331,7 @@ export function Matrices() {
                           </div>
                         )}
                       </div>
+                      </div>
                     );
                   })}
                 </div>
@@ -346,9 +340,7 @@ export function Matrices() {
           </Card>
         </div>
 
-            </div>
-
-      <ConfirmModal
+            </div>      <ConfirmModal
         isOpen={!!matrixToDelete}
         title="Excluir Rascunho"
         message={matrixToDelete ? `Deseja realmente excluir o rascunho da matriz "${meta.gradeLevels?.find((g: any) => g.id === matrixToDelete.gradeLevelId)?.name || matrixToDelete.gradeLevelId}" (Ano: ${matrixToDelete.schoolYear}, Período: ${matrixToDelete.period}, Marca: ${meta.brands?.find((b: any) => b.id === matrixToDelete.brandId)?.name || matrixToDelete.brandId}, Programa: ${meta.programs?.find((p: any) => p.id === matrixToDelete.programId)?.name || matrixToDelete.programId})?` : ''}
@@ -356,8 +348,13 @@ export function Matrices() {
         cancelText="Cancelar"
         onConfirm={handleDeleteMatrix}
         onCancel={() => {
-          if (!isDeleting) setMatrixToDelete(null);
+          if (!isDeleting) {
+            setMatrixToDelete(null);
+            setDeleteError('');
+          }
         }}
+        isLoading={isDeleting}
+        error={deleteError}
       />
     </div>
   );
