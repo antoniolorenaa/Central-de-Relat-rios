@@ -112,6 +112,9 @@ Regras estritas:
       });
     } catch (e: any) {
       console.error('Gemini Error:', e);
+      if (e.message && (e.message.includes('RESOURCE_EXHAUSTED') || e.message.includes('Quota exceeded') || e.status === 429)) {
+        return res.status(429).json({ error: 'Limite de uso da inteligência artificial atingido. Por favor, aguarde alguns instantes e tente novamente.' });
+      }
       res.status(500).json({ error: e.message || 'Erro ao gerar sugestão com IA.' });
     }
   });
