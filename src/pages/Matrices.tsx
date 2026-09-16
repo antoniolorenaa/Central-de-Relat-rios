@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useAuth } from '../lib/auth';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
+import { MatrixEditor } from '../components/MatrixEditor';
 import { ConfirmModal } from '../components/ui/ConfirmModal';
 import { Loader2, Plus, Upload, CheckCircle, FileText, AlertCircle, Archive, Trash2, Eye, X } from 'lucide-react';
 import type { Matrix } from '../types';
@@ -28,6 +29,7 @@ export function Matrices() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState('');
   const [viewingMatrix, setViewingMatrix] = useState<Matrix | null>(null);
+  const [editingMatrix, setEditingMatrix] = useState<Matrix | null>(null);
 
   useEffect(() => {
     fetchMeta();
@@ -157,6 +159,31 @@ export function Matrices() {
   };
 
   if (profile?.role !== 'MASTER') return <div className="p-12 text-center text-gray-500">Acesso negado.</div>;
+
+  if (editingMatrix) {
+    return (
+      <MatrixEditor 
+        matrix={editingMatrix} 
+        meta={meta} 
+        onCancel={() => setEditingMatrix(null)} 
+        onSaveSuccess={() => { setEditingMatrix(null); fetchMatrices(); }} 
+        onConflict={(draftId) => { 
+          const existingDraft = matrices.find(m => m.id === draftId);
+          if (existingDraft) setEditingMatrix(existingDraft);
+          else fetchMatrices().then(() => {
+             const fn = async () => {
+               const token = await user?.getIdToken();
+               const r = await fetch('/api/admin/matrices', { headers: { Authorization: `Bearer ${token}` } });
+               const d = await r.json();
+               setMatrices(d.matrices || []);
+               setEditingMatrix(d.matrices.find((m: any) => m.id === draftId) || null);
+             };
+             fn();
+          });
+        }} 
+      />
+    );
+  }
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
@@ -303,6 +330,11 @@ export function Matrices() {
                           <Eye className="w-4 h-4 mr-2" />
                           Ver critérios
                         </Button>
+                        {profile?.role === 'MASTER' && (
+                          <Button variant="outline" className="text-blue-600 border-blue-200 hover:bg-blue-50 whitespace-nowrap" onClick={() => setEditingMatrix(matrix)}>
+                            Editar matriz
+                          </Button>
+                        )}
                         {matrix.status === 'DRAFT' && confirmPublishId !== matrix.id && (
                           <>
                             <Button variant="outline" className="text-green-700 border-green-200 hover:bg-green-50 whitespace-nowrap" onClick={() => setConfirmPublishId(matrix.id)}>
@@ -373,9 +405,16 @@ export function Matrices() {
                   {meta.gradeLevels?.find((g: any) => g.id === viewingMatrix.gradeLevelId)?.name || viewingMatrix.gradeLevelId} • {viewingMatrix.schoolYear} • {viewingMatrix.period} • {viewingMatrix.brandId === 'GLOBAL' ? 'GLOBAL' : meta.brands?.find((b: any) => b.id === viewingMatrix.brandId)?.name || viewingMatrix.brandId} • {viewingMatrix.programId === 'ALL' ? 'Todos os Programas' : meta.programs?.find((p: any) => p.id === viewingMatrix.programId)?.name || viewingMatrix.programId} • v{viewingMatrix.version} • {viewingMatrix.status}
                 </p>
               </div>
-              <button onClick={() => setViewingMatrix(null)} className="text-gray-400 hover:text-gray-600 rounded-full p-2 hover:bg-gray-200 transition-colors">
+              <div className="flex items-center gap-3">
+                {profile?.role === 'MASTER' && (
+                  <Button variant="outline" className="text-blue-600 border-blue-200 hover:bg-blue-50 whitespace-nowrap" onClick={() => { setEditingMatrix(viewingMatrix); setViewingMatrix(null); }}>
+                    Editar matriz
+                  </Button>
+                )}
+                <button onClick={() => setViewingMatrix(null)} className="text-gray-400 hover:text-gray-600 rounded-full p-2 hover:bg-gray-200 transition-colors">
                 <X className="w-5 h-5" />
               </button>
+              </div>
             </div>
             
             <div className="px-6 py-4 flex-1 overflow-y-auto">
