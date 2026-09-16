@@ -1341,7 +1341,11 @@ export function ClassEvaluation() {
                           4. Validação do Relatório
                         </h2>
 
-                        {selectedReport?.reportStatus === "VALIDATED" ? (
+                        {!selectedAssessment && selectedReport && !selectedReport.assessmentId ? (
+                          <div className="bg-amber-100 text-amber-800 px-4 py-2 rounded-full font-bold text-sm flex items-center">
+                            Aguardando nova matriz/avaliação
+                          </div>
+                        ) : selectedReport?.reportStatus === "VALIDATED" ? (
                           <>
                             <div className="bg-green-100 text-green-800 px-4 py-2 rounded-full font-bold text-sm flex items-center">
                               <CheckCircle className="w-4 h-4 mr-2" />

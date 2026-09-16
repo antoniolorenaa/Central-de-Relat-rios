@@ -26,6 +26,8 @@ export function Matrices() {
   const [error, setError] = useState('');
   const [confirmPublishId, setConfirmPublishId] = useState<string | null>(null);
   const [matrixToDelete, setMatrixToDelete] = useState<Matrix | null>(null);
+  const [deleteImpact, setDeleteImpact] = useState<any>(null);
+  const [isLoadingImpact, setIsLoadingImpact] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState('');
   const [viewingMatrix, setViewingMatrix] = useState<Matrix | null>(null);
@@ -37,21 +39,49 @@ export function Matrices() {
   }, []);
 
   
-  const handleDeleteMatrix = async () => {
-    if (!matrixToDelete || isDeleting) return;
+  const fetchDeleteImpact = async (matrixId: string) => {
+    setIsLoadingImpact(true);
+    setDeleteImpact(null);
+    setDeleteError('');
+    try {
+      const token = await user?.getIdToken();
+      const res = await fetch(`/api/admin/matrices/${matrixId}/impact`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      setDeleteImpact(data.impact);
+    } catch (e: any) {
+      setDeleteError(e.message);
+    } finally {
+      setIsLoadingImpact(false);
+    }
+  };
+
+  const handleForceDeleteMatrix = async () => {
+    if (!matrixToDelete || isDeleting || !deleteImpact) return;
     setIsDeleting(true);
     try {
       setDeleteError('');
       const token = await user?.getIdToken();
-      const res = await fetch(`/api/admin/matrices/${matrixToDelete.id}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` }
+      const res = await fetch(`/api/admin/matrices/${matrixToDelete.id}/force-delete`, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}` 
+        },
+        body: JSON.stringify({
+          expectedAssessments: deleteImpact.assessmentsCount,
+          expectedReports: deleteImpact.reportsCount,
+          expectedValidated: deleteImpact.validatedReportsCount
+        })
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Erro ao excluir');
+      if (!res.ok) throw new Error(data.error || 'Erro ao excluir matriz');
       
       setMatrices(prev => prev.filter(m => m.id !== matrixToDelete.id));
       setMatrixToDelete(null);
+      setDeleteImpact(null);
       setDeleteError('');
     } catch(err: any) {
       setDeleteError(err.message);
@@ -336,16 +366,16 @@ export function Matrices() {
                           </Button>
                         )}
                         {matrix.status === 'DRAFT' && confirmPublishId !== matrix.id && (
-                          <>
-                            <Button variant="outline" className="text-green-700 border-green-200 hover:bg-green-50 whitespace-nowrap" onClick={() => setConfirmPublishId(matrix.id)}>
-                              <CheckCircle className="w-4 h-4 mr-2" />
-                              Publicar
-                            </Button>
-                            <Button variant="outline" className="text-red-600 border-red-200 hover:bg-red-50 whitespace-nowrap" onClick={() => { setDeleteError(''); setMatrixToDelete(matrix); }}>
-                              <Trash2 className="w-4 h-4 mr-2" />
-                              Excluir rascunho
-                            </Button>
-                          </>
+                          <Button variant="outline" className="text-green-700 border-green-200 hover:bg-green-50 whitespace-nowrap" onClick={() => setConfirmPublishId(matrix.id)}>
+                            <CheckCircle className="w-4 h-4 mr-2" />
+                            Publicar
+                          </Button>
+                        )}
+                        {profile?.role === 'MASTER' && confirmPublishId !== matrix.id && (
+                          <Button variant="outline" className="text-red-600 border-red-200 hover:bg-red-50 whitespace-nowrap" onClick={() => { setDeleteError(''); setMatrixToDelete(matrix); fetchDeleteImpact(matrix.id); }}>
+                            <Trash2 className="w-4 h-4 mr-2" />
+                            {matrix.status === 'DRAFT' ? 'Excluir rascunho' : 'Excluir matriz'}
+                          </Button>
                         )}
                         {matrix.status === 'DRAFT' && confirmPublishId === matrix.id && (
                           <div className="flex flex-col sm:flex-row gap-2">
@@ -377,22 +407,49 @@ export function Matrices() {
           </Card>
         </div>
 
-            </div>      <ConfirmModal
-        isOpen={!!matrixToDelete}
-        title="Excluir Rascunho"
-        message={matrixToDelete ? `Deseja realmente excluir o rascunho da matriz "${meta.gradeLevels?.find((g: any) => g.id === matrixToDelete.gradeLevelId)?.name || matrixToDelete.gradeLevelId}" (Ano: ${matrixToDelete.schoolYear}, Período: ${matrixToDelete.period}, Marca: ${meta.brands?.find((b: any) => b.id === matrixToDelete.brandId)?.name || matrixToDelete.brandId}, Programa: ${meta.programs?.find((p: any) => p.id === matrixToDelete.programId)?.name || matrixToDelete.programId})?` : ''}
-        confirmText={isDeleting ? "Excluindo..." : "Sim, Excluir"}
-        cancelText="Cancelar"
-        onConfirm={handleDeleteMatrix}
-        onCancel={() => {
-          if (!isDeleting) {
-            setMatrixToDelete(null);
-            setDeleteError('');
-          }
-        }}
-        isLoading={isDeleting}
-        error={deleteError}
-      />
+            </div>      {matrixToDelete && (
+  <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+    <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6">
+      <h3 className="text-lg font-bold text-gray-900 mb-2">Excluir Matriz</h3>
+      <div className="text-sm text-gray-600 mb-4 space-y-2">
+        <p><strong>Atenção:</strong> Esta ação é irreversível.</p>
+        <p>Série: {meta.gradeLevels?.find((g: any) => g.id === matrixToDelete.gradeLevelId)?.name || matrixToDelete.gradeLevelId} • Ano: {matrixToDelete.schoolYear} • Período: {matrixToDelete.period} • Marca: {meta.brands?.find((b: any) => b.id === matrixToDelete.brandId)?.name || matrixToDelete.brandId} • Programa: {meta.programs?.find((p: any) => p.id === matrixToDelete.programId)?.name || matrixToDelete.programId} • Versão: v{matrixToDelete.version}</p>
+        
+        {isLoadingImpact ? (
+          <div className="flex items-center gap-2 mt-4 text-blue-600">
+            <Loader2 className="w-4 h-4 animate-spin" />
+            <span>Calculando impacto...</span>
+          </div>
+        ) : deleteImpact ? (
+          <div className="bg-red-50 p-3 rounded text-red-800 mt-4 text-xs font-medium space-y-1 border border-red-100">
+            <p>• {deleteImpact.assessmentsCount} avaliações serão removidas.</p>
+            <p>• {deleteImpact.affectedStudentsCount} alunos afetados (respostas D/ED serão apagadas).</p>
+            <p>• {deleteImpact.reportsCount} pareceres ficarão sem avaliação vinculada.</p>
+            <p>• {deleteImpact.validatedReportsCount} pareceres perderão o status de validado.</p>
+          </div>
+        ) : null}
+        
+        <p className="mt-4 font-semibold text-red-600">Confirma que as respostas D/ED da matriz selecionada serão removidas?</p>
+      </div>
+
+      {deleteError && (
+        <div className="p-3 text-sm text-red-800 bg-red-50 rounded-md mb-4 border border-red-100">
+          {deleteError}
+        </div>
+      )}
+
+      <div className="flex justify-end gap-3 mt-6">
+        <Button variant="outline" onClick={() => { if (!isDeleting) { setMatrixToDelete(null); setDeleteImpact(null); setDeleteError(''); } }}>
+          Cancelar
+        </Button>
+        <Button className="bg-red-600 hover:bg-red-700 text-white" onClick={handleForceDeleteMatrix} disabled={isDeleting || isLoadingImpact || !deleteImpact}>
+          {isDeleting ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+          {isDeleting ? "Excluindo..." : "Sim, Excluir"}
+        </Button>
+      </div>
+    </div>
+  </div>
+)}
       {viewingMatrix && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
           <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden">
