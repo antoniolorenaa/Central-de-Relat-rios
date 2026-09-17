@@ -79,7 +79,11 @@ async function startServer() {
       }
       next();
     } catch (error: any) {
-      console.error("DEBUG ERROR:", error);
+      if (error?.code === 8 || error?.message?.includes('RESOURCE_EXHAUSTED') || error?.message?.includes('Quota exceeded')) {
+        console.warn("DEBUG Quota Warning:", error.message);
+      } else {
+        console.error("DEBUG ERROR:", error);
+      }
       if (error?.code === 8 || error?.message?.includes('RESOURCE_EXHAUSTED') || error?.message?.includes('Quota exceeded')) {
         res.status(429).json({
           error: 'Limite de cota do Firestore atingido (RESOURCE_EXHAUSTED). A cota diária gratuita do Firebase será restabelecida no próximo ciclo diário.',
@@ -149,7 +153,11 @@ async function startServer() {
         stats
       });
     } catch (error: any) {
-      console.error("Stats Error:", error);
+      if (error?.code === 8 || error?.message?.includes('RESOURCE_EXHAUSTED') || error?.message?.includes('Quota exceeded')) {
+        console.warn("Stats Quota Warning:", error.message);
+      } else {
+        console.error("Stats Error:", error);
+      }
       if (error?.code === 8 || error?.message?.includes('RESOURCE_EXHAUSTED') || error?.message?.includes('Quota exceeded')) {
         if (statsCache) {
           return res.json({ success: true, stats: statsCache.stats, stale: true });
@@ -240,7 +248,11 @@ async function startServer() {
   // Global error handler for API
   app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
     if (req.path.startsWith('/api/')) {
-      console.error("Global API Error Handler caught:", err);
+      if (err?.code === 8 || err?.message?.includes('RESOURCE_EXHAUSTED') || err?.message?.includes('Quota exceeded')) {
+        console.warn("Global API Quota Warning:", err.message);
+      } else {
+        console.error("Global API Error Handler caught:", err);
+      }
       if (err?.code === 8 || err?.message?.includes('RESOURCE_EXHAUSTED') || err?.message?.includes('Quota exceeded')) {
         return res.status(429).json({
           error: "Limite de cota do Firestore atingido (RESOURCE_EXHAUSTED). A cota diária gratuita do Firebase será restabelecida no próximo ciclo diário.",

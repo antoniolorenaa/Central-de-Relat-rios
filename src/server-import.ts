@@ -203,7 +203,12 @@ export function registerImportRoutes(app: express.Express, db: FirebaseFirestore
       res.json({ success: true, batch: importBatch, previewRows: processedRows.slice(0, 100) });
     } catch (e: any) {
       console.error("Preview error:", e.message);
+      
+      if (e?.code === 8 || e?.message?.includes('RESOURCE_EXHAUSTED') || e?.message?.includes('Quota exceeded')) {
+        return res.status(429).json({ error: "Limite de cota do banco de dados atingido." });
+      }
       res.status(500).json({ error: 'Erro no processamento. Linha com formato inválido.' });
+
     }
   });
 
@@ -223,8 +228,17 @@ export function registerImportRoutes(app: express.Express, db: FirebaseFirestore
 
       res.json({ success: true, history });
     } catch (e: any) {
-      console.error(e);
+      if (e?.code === 8 || e?.message?.includes('RESOURCE_EXHAUSTED') || e?.message?.includes('Quota exceeded')) {
+        console.warn("Quota Warning:", e.message);
+      } else {
+        console.error(e);
+      }
+      
+      if (e?.code === 8 || e?.message?.includes('RESOURCE_EXHAUSTED') || e?.message?.includes('Quota exceeded')) {
+        return res.status(429).json({ error: "Limite de cota do banco de dados atingido." });
+      }
       res.status(500).json({ error: 'Erro ao buscar histórico: ' + e.message });
+
     }
   });
 
@@ -362,8 +376,17 @@ export function registerImportRoutes(app: express.Express, db: FirebaseFirestore
       }
 
     } catch (e: any) {
-      console.error(e);
-      res.status(500).json({ error: 'Erro na confirmação: ' + e.message });
+      if (e?.code === 8 || e?.message?.includes('RESOURCE_EXHAUSTED') || e?.message?.includes('Quota exceeded')) {
+        console.warn("Quota Warning:", e.message);
+      } else {
+        console.error(e);
+      }
+      
+      if (e?.code === 8 || e?.message?.includes('RESOURCE_EXHAUSTED') || e?.message?.includes('Quota exceeded')) {
+        return res.status(429).json({ error: "Limite de cota do banco de dados atingido. A cota diária gratuita do Firebase será restabelecida no próximo ciclo." });
+      }
+      res.status(500).json({ error: e.message });
+
     }
   });
 }

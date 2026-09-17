@@ -55,8 +55,12 @@ export function Users() {
         })),
       ];
       setUsers(merged);
-    } catch (err) {
-      console.error(err);
+    } catch (err: any) {
+      if (err?.code === 'resource-exhausted' || err?.message?.includes('RESOURCE_EXHAUSTED') || err?.message?.includes('Quota exceeded')) {
+         setActionError('Limite de cota do banco de dados atingido (RESOURCE_EXHAUSTED). Tente novamente no próximo ciclo.');
+      } else {
+         console.error(err);
+      }
     }
   };
 

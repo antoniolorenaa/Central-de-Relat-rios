@@ -304,8 +304,17 @@ Regras estritas:
       if (e.message === 'Avaliação de destino com vínculos corrompidos.') return res.status(400).json({ error: e.message });
       if (e.message === 'Matriz de destino não encontrada.') return res.status(404).json({ error: e.message });
       if (e.message === 'Relatório não encontrado.') return res.status(404).json({ error: e.message });
-      console.error(e);
+      if (e?.code === 8 || e?.message?.includes('RESOURCE_EXHAUSTED') || e?.message?.includes('Quota exceeded')) {
+        console.warn("Quota Warning:", e.message);
+      } else {
+        console.error(e);
+      }
+      
+      if (e?.code === 8 || e?.message?.includes('RESOURCE_EXHAUSTED') || e?.message?.includes('Quota exceeded')) {
+        return res.status(429).json({ error: "Limite de cota do banco de dados atingido. A cota diária gratuita do Firebase será restabelecida no próximo ciclo." });
+      }
       res.status(500).json({ error: e.message });
+  
     }
   });
 
@@ -469,8 +478,17 @@ Regras estritas:
       if (e.message === 'Vínculos inconsistentes no relatório.' || e.message === 'Revisão esperada não fornecida ou inválida.') {
         return res.status(400).json({ error: e.message });
       }
-      console.error(e);
+      if (e?.code === 8 || e?.message?.includes('RESOURCE_EXHAUSTED') || e?.message?.includes('Quota exceeded')) {
+        console.warn("Quota Warning:", e.message);
+      } else {
+        console.error(e);
+      }
+      
+      if (e?.code === 8 || e?.message?.includes('RESOURCE_EXHAUSTED') || e?.message?.includes('Quota exceeded')) {
+        return res.status(429).json({ error: "Limite de cota do banco de dados atingido. A cota diária gratuita do Firebase será restabelecida no próximo ciclo." });
+      }
       res.status(500).json({ error: e.message });
+  
     }
   });
 
@@ -660,8 +678,17 @@ Regras estritas:
       if (e.message === 'Avaliação vinculada inexistente.') return res.status(404).json({ error: e.message });
       if (e.message === 'Relatório sem avaliação vinculada.') return res.status(400).json({ error: e.message });
       if (e.message === 'Relatório não encontrado.') return res.status(404).json({ error: e.message });
-      console.error(e);
+      if (e?.code === 8 || e?.message?.includes('RESOURCE_EXHAUSTED') || e?.message?.includes('Quota exceeded')) {
+        console.warn("Quota Warning:", e.message);
+      } else {
+        console.error(e);
+      }
+      
+      if (e?.code === 8 || e?.message?.includes('RESOURCE_EXHAUSTED') || e?.message?.includes('Quota exceeded')) {
+        return res.status(429).json({ error: "Limite de cota do banco de dados atingido. A cota diária gratuita do Firebase será restabelecida no próximo ciclo." });
+      }
       res.status(500).json({ error: e.message });
+  
     }
   });
 
@@ -757,8 +784,17 @@ Regras estritas:
       if (e.message === 'Avaliação vinculada inexistente.') return res.status(404).json({ error: e.message });
       if (e.message === 'Vínculos inconsistentes entre avaliação, matrícula e relatório.') return res.status(400).json({ error: e.message });
       if (e.message === 'Relatório não encontrado.') return res.status(404).json({ error: e.message });
-      console.error(e);
+      if (e?.code === 8 || e?.message?.includes('RESOURCE_EXHAUSTED') || e?.message?.includes('Quota exceeded')) {
+        console.warn("Quota Warning:", e.message);
+      } else {
+        console.error(e);
+      }
+      
+      if (e?.code === 8 || e?.message?.includes('RESOURCE_EXHAUSTED') || e?.message?.includes('Quota exceeded')) {
+        return res.status(429).json({ error: "Limite de cota do banco de dados atingido. A cota diária gratuita do Firebase será restabelecida no próximo ciclo." });
+      }
       res.status(500).json({ error: e.message });
+  
     }
   });
 

@@ -175,6 +175,7 @@ function MasterHome() {
 
 function CoordinationHome() {
   const { profile } = useAuth();
+  const [error, setError] = useState<string>('');
   const [brands, setBrands] = useState<any[]>([]);
   const [units, setUnits] = useState<any[]>([]);
   const [gradeLevels, setGradeLevels] = useState<any[]>([]);
@@ -191,8 +192,12 @@ function CoordinationHome() {
         setBrands(bSnap.docs.map(d => d.data()));
         setUnits(uSnap.docs.map(d => d.data()));
         setGradeLevels(glSnap.docs.map(d => d.data()));
-      } catch (error) {
-        console.error(error);
+      } catch (error: any) {
+        if (error?.code === 'resource-exhausted' || error?.message?.includes('RESOURCE_EXHAUSTED') || error?.message?.includes('Quota exceeded')) {
+           setError('Aviso: Limite de cota do banco de dados atingido (RESOURCE_EXHAUSTED). Os dados podem não ser carregados.');
+        } else {
+           console.error(error);
+        }
       }
     }
     loadStructure();
@@ -200,6 +205,11 @@ function CoordinationHome() {
 
   return (
     <div className="space-y-8">
+      {error && (
+        <div className="bg-red-50 border border-red-200 text-red-600 p-4 rounded-lg mb-6 flex items-center">
+          <span className="font-medium">{error}</span>
+        </div>
+      )}
       <div>
         <h1 className="text-2xl font-bold tracking-tight text-[#0f172a]">Meu acesso</h1>
         <p className="text-gray-500 mt-1">Sua estrutura de trabalho autorizada.</p>

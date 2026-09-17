@@ -228,6 +228,18 @@ export function ClassEvaluation() {
         throw new Error(data.error || "Erro ao salvar.");
       }
 
+      if (data.report) {
+        setReports((prev) => {
+          const idx = prev.findIndex((r) => r.id === data.report.id);
+          if (idx >= 0) {
+            const next = [...prev];
+            next[idx] = data.report;
+            return next;
+          }
+          return [...prev, data.report];
+        });
+      }
+
       // Update with source of truth
       setAssessments((prev) => {
         const copy = [...prev];

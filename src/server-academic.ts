@@ -113,8 +113,17 @@ export function registerAcademicRoutes(app: express.Express, db: FirebaseFiresto
         }
       });
     } catch (e: any) {
-      console.error(e);
+      if (e?.code === 8 || e?.message?.includes('RESOURCE_EXHAUSTED') || e?.message?.includes('Quota exceeded')) {
+        console.warn("Quota Warning:", e.message);
+      } else {
+        console.error(e);
+      }
+      
+      if (e?.code === 8 || e?.message?.includes('RESOURCE_EXHAUSTED') || e?.message?.includes('Quota exceeded')) {
+        return res.status(429).json({ error: "Limite de cota do banco de dados atingido. A cota diária gratuita do Firebase será restabelecida no próximo ciclo." });
+      }
       res.status(500).json({ error: e.message });
+  
     }
   });
 
@@ -172,8 +181,17 @@ export function registerAcademicRoutes(app: express.Express, db: FirebaseFiresto
 
       res.json({ success: true, students: result });
     } catch (e: any) {
-      console.error(e);
+      if (e?.code === 8 || e?.message?.includes('RESOURCE_EXHAUSTED') || e?.message?.includes('Quota exceeded')) {
+        console.warn("Quota Warning:", e.message);
+      } else {
+        console.error(e);
+      }
+      
+      if (e?.code === 8 || e?.message?.includes('RESOURCE_EXHAUSTED') || e?.message?.includes('Quota exceeded')) {
+        return res.status(429).json({ error: "Limite de cota do banco de dados atingido. A cota diária gratuita do Firebase será restabelecida no próximo ciclo." });
+      }
       res.status(500).json({ error: e.message });
+  
     }
   });
 }

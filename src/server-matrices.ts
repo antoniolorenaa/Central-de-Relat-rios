@@ -15,8 +15,17 @@ export function registerMatricesRoutes(app: express.Express, db: FirebaseFiresto
       const matrices = snap.docs.map(d => d.data());
       res.json({ success: true, matrices });
     } catch (e: any) {
-      console.error(e);
+      if (e?.code === 8 || e?.message?.includes('RESOURCE_EXHAUSTED') || e?.message?.includes('Quota exceeded')) {
+        console.warn("Quota Warning:", e.message);
+      } else {
+        console.error(e);
+      }
+      
+      if (e?.code === 8 || e?.message?.includes('RESOURCE_EXHAUSTED') || e?.message?.includes('Quota exceeded')) {
+        return res.status(429).json({ error: "Limite de cota do banco de dados atingido. A cota diária gratuita do Firebase será restabelecida no próximo ciclo." });
+      }
       res.status(500).json({ error: e.message });
+  
     }
   });
 
@@ -46,8 +55,17 @@ export function registerMatricesRoutes(app: express.Express, db: FirebaseFiresto
       await db.collection('matrices').doc(matrixId).set(matrix);
       res.json({ success: true, matrix });
     } catch (e: any) {
-      console.error(e);
+      if (e?.code === 8 || e?.message?.includes('RESOURCE_EXHAUSTED') || e?.message?.includes('Quota exceeded')) {
+        console.warn("Quota Warning:", e.message);
+      } else {
+        console.error(e);
+      }
+      
+      if (e?.code === 8 || e?.message?.includes('RESOURCE_EXHAUSTED') || e?.message?.includes('Quota exceeded')) {
+        return res.status(429).json({ error: "Limite de cota do banco de dados atingido. A cota diária gratuita do Firebase será restabelecida no próximo ciclo." });
+      }
       res.status(500).json({ error: e.message });
+  
     }
   });
 
@@ -155,8 +173,17 @@ const errors = [];
       await db.collection('matrices').doc(matrixId).set(matrix);
       res.json({ success: true, matrix });
     } catch (e: any) {
-      console.error(e);
+      if (e?.code === 8 || e?.message?.includes('RESOURCE_EXHAUSTED') || e?.message?.includes('Quota exceeded')) {
+        console.warn("Quota Warning:", e.message);
+      } else {
+        console.error(e);
+      }
+      
+      if (e?.code === 8 || e?.message?.includes('RESOURCE_EXHAUSTED') || e?.message?.includes('Quota exceeded')) {
+        return res.status(429).json({ error: "Limite de cota do banco de dados atingido. A cota diária gratuita do Firebase será restabelecida no próximo ciclo." });
+      }
       res.status(500).json({ error: e.message });
+  
     }
   });
 
@@ -206,7 +233,12 @@ const errors = [];
       if (e.message === 'NOT_FOUND') return res.status(404).json({ error: 'Matriz não encontrada' });
       if (e.message === 'NOT_DRAFT') return res.status(400).json({ error: 'Somente matrizes em rascunho podem ser excluídas' });
       if (e.message === 'LINKED') return res.status(400).json({ error: 'A matriz possui registros vinculados' });
+      
+      if (e?.code === 8 || e?.message?.includes('RESOURCE_EXHAUSTED') || e?.message?.includes('Quota exceeded')) {
+        return res.status(429).json({ error: "Limite de cota do banco de dados atingido. A cota diária gratuita do Firebase será restabelecida no próximo ciclo." });
+      }
       res.status(500).json({ error: e.message });
+  
     }
   });
 
@@ -349,8 +381,17 @@ const errors = [];
         const existingDraftId = e.message.split(':')[1];
         return res.status(409).json({ error: 'Já existe um rascunho para esta combinação.', existingDraftId });
       }
-      console.error(e);
+      if (e?.code === 8 || e?.message?.includes('RESOURCE_EXHAUSTED') || e?.message?.includes('Quota exceeded')) {
+        console.warn("Quota Warning:", e.message);
+      } else {
+        console.error(e);
+      }
+      
+      if (e?.code === 8 || e?.message?.includes('RESOURCE_EXHAUSTED') || e?.message?.includes('Quota exceeded')) {
+        return res.status(429).json({ error: "Limite de cota do banco de dados atingido. A cota diária gratuita do Firebase será restabelecida no próximo ciclo." });
+      }
       res.status(500).json({ error: e.message });
+  
     }
   });
 
@@ -390,8 +431,17 @@ const errors = [];
         }
       });
     } catch (e: any) {
-      console.error(e);
+      if (e?.code === 8 || e?.message?.includes('RESOURCE_EXHAUSTED') || e?.message?.includes('Quota exceeded')) {
+        console.warn("Quota Warning:", e.message);
+      } else {
+        console.error(e);
+      }
+      
+      if (e?.code === 8 || e?.message?.includes('RESOURCE_EXHAUSTED') || e?.message?.includes('Quota exceeded')) {
+        return res.status(429).json({ error: "Limite de cota do banco de dados atingido. A cota diária gratuita do Firebase será restabelecida no próximo ciclo." });
+      }
       res.status(500).json({ error: e.message });
+  
     }
   });
 
@@ -483,8 +533,17 @@ const errors = [];
       if (e.message === 'NOT_FOUND') return res.status(404).json({ error: 'Matriz não encontrada.' });
       if (e.message === 'ALREADY_DELETING') return res.status(409).json({ error: 'Matriz já está em processo de exclusão.' });
       if (e.message === 'COUNTS_MISMATCH') return res.status(409).json({ error: 'Os registros mudaram desde a confirmação. Atualize a prévia.' });
-      console.error(e);
+      if (e?.code === 8 || e?.message?.includes('RESOURCE_EXHAUSTED') || e?.message?.includes('Quota exceeded')) {
+        console.warn("Quota Warning:", e.message);
+      } else {
+        console.error(e);
+      }
+      
+      if (e?.code === 8 || e?.message?.includes('RESOURCE_EXHAUSTED') || e?.message?.includes('Quota exceeded')) {
+        return res.status(429).json({ error: "Limite de cota do banco de dados atingido. A cota diária gratuita do Firebase será restabelecida no próximo ciclo." });
+      }
       res.status(500).json({ error: e.message });
+  
     }
   });
 
@@ -563,8 +622,17 @@ const errors = [];
       const finalDoc = await matrixRef.get();
       res.json({ success: true, matrix: finalDoc.data() });
     } catch (e: any) {
-      console.error(e);
+      if (e?.code === 8 || e?.message?.includes('RESOURCE_EXHAUSTED') || e?.message?.includes('Quota exceeded')) {
+        console.warn("Quota Warning:", e.message);
+      } else {
+        console.error(e);
+      }
+      
+      if (e?.code === 8 || e?.message?.includes('RESOURCE_EXHAUSTED') || e?.message?.includes('Quota exceeded')) {
+        return res.status(429).json({ error: "Limite de cota do banco de dados atingido. A cota diária gratuita do Firebase será restabelecida no próximo ciclo." });
+      }
       res.status(500).json({ error: e.message });
+  
     }
   });
 
@@ -628,8 +696,17 @@ const errors = [];
 
       res.json({ success: true, matrix: topPriority[0] });
     } catch (e: any) {
-      console.error(e);
+      if (e?.code === 8 || e?.message?.includes('RESOURCE_EXHAUSTED') || e?.message?.includes('Quota exceeded')) {
+        console.warn("Quota Warning:", e.message);
+      } else {
+        console.error(e);
+      }
+      
+      if (e?.code === 8 || e?.message?.includes('RESOURCE_EXHAUSTED') || e?.message?.includes('Quota exceeded')) {
+        return res.status(429).json({ error: "Limite de cota do banco de dados atingido. A cota diária gratuita do Firebase será restabelecida no próximo ciclo." });
+      }
       res.status(500).json({ error: e.message });
+  
     }
   });
 
