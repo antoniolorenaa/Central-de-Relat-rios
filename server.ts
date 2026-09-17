@@ -115,14 +115,14 @@ async function startServer() {
       }
 
       const [brandsSnap, unitsSnap, glSnap, progSnap, usersSnap, grantsSnap, classesSnap, studentsSnap] = await Promise.all([
-        db.collection('brands').get(),
-        db.collection('units').get(),
-        db.collection('gradeLevels').get(),
-        db.collection('programs').get(),
+        db.collection('brands').count().get(),
+        db.collection('units').count().get(),
+        db.collection('gradeLevels').count().get(),
+        db.collection('programs').count().get(),
         db.collection('users').where('active', '==', true).get(),
         db.collection('accessGrants').where('active', '==', true).get(),
-        db.collection('classes').where('active', '==', true).get(),
-        db.collection('students').where('active', '==', true).get()
+        db.collection('classes').where('active', '==', true).count().get(),
+        db.collection('students').where('active', '==', true).count().get()
       ]);
 
       const users = usersSnap.docs.map(d => d.data());
@@ -133,12 +133,12 @@ async function startServer() {
                            pendingGrants.filter(g => g.role === 'COORDINATION').length;
 
       const stats = {
-        brands: brandsSnap.size,
-        units: unitsSnap.size,
-        gradeLevels: glSnap.size,
-        programs: progSnap.size,
-        classes: classesSnap.size,
-        students: studentsSnap.size,
+        brands: brandsSnap.data().count,
+        units: unitsSnap.data().count,
+        gradeLevels: glSnap.data().count,
+        programs: progSnap.data().count,
+        classes: classesSnap.data().count,
+        students: studentsSnap.data().count,
         users: totalUsers,
         coordinations
       };

@@ -51,12 +51,11 @@ export function registerAcademicRoutes(app: express.Express, db: FirebaseFiresto
       const classIds = classes.map(c => c.id);
       
       // Fetch metadata to enrich response
-      const [brandsSnap, unitsSnap, glSnap, programsSnap, enrollmentsSnap] = await Promise.all([
+      const [brandsSnap, unitsSnap, glSnap, programsSnap] = await Promise.all([
         db.collection('brands').get(),
         db.collection('units').get(),
         db.collection('gradeLevels').get(),
-        db.collection('programs').get(),
-        db.collection('enrollments').where('active', '==', true).select('classId').get()
+        db.collection('programs').get()
       ]);
 
       const brands = brandsSnap.docs.map(d => d.data());
@@ -65,11 +64,19 @@ export function registerAcademicRoutes(app: express.Express, db: FirebaseFiresto
       const programs = programsSnap.docs.map(d => d.data());
       
       const enrollmentCounts: Record<string, number> = {};
-      enrollmentsSnap.docs.forEach(doc => {
-        const cid = doc.data().classId;
-        if (!enrollmentCounts[cid]) enrollmentCounts[cid] = 0;
-        enrollmentCounts[cid]++;
-      });
+      
+      // Batch count queries for classes
+      const countPromises = classes.map(cls => 
+        db.collection('enrollments').where('active', '==', true).where('classId', '==', cls.id).count().get()
+          .then(snap => {
+            enrollmentCounts[cls.id] = snap.data().count;
+          })
+          .catch(err => {
+             console.error("Count err", err);
+             enrollmentCounts[cls.id] = 0;
+          })
+      );
+      await Promise.all(countPromises);
 
       // Enrich classes with counts and names
       classes = classes.map(cls => ({
