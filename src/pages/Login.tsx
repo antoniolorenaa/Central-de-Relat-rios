@@ -49,6 +49,8 @@ export function Login() {
     );
   }
 
+  const isInIframe = typeof window !== 'undefined' && window.self !== window.top;
+
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
       <div className="sm:mx-auto sm:w-full sm:max-w-md text-center mb-8">
@@ -63,7 +65,25 @@ export function Login() {
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
         <Card>
           <CardContent className="pt-8 pb-8 flex flex-col items-center">
+            {isInIframe && (
+              <div className="mb-5 w-full p-3 bg-amber-50 border border-amber-200 rounded-md text-xs text-amber-800 text-left">
+                <p className="font-semibold mb-1">Visualização em quadro integrado (iframe):</p>
+                <p className="mb-2 leading-relaxed">
+                  Para que a autenticação com a conta Google funcione sem bloqueios de segurança do navegador, recomendamos abrir o aplicativo em uma nova aba.
+                </p>
+                <a
+                  href={window.location.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center text-blue-600 underline font-medium hover:text-blue-800"
+                >
+                  Abrir aplicativo em nova aba ↗
+                </a>
+              </div>
+            )}
+
             <Button
+              type="button"
               onClick={signIn}
               disabled={loading}
               className="w-full py-6 text-base shadow-sm"
@@ -92,7 +112,31 @@ export function Login() {
               Acesso exclusivo para usuários autorizados.
             </p>
             {error && (
-              <p className="mt-4 text-sm text-red-600 text-center">{error}</p>
+              <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-md text-xs text-red-700 w-full text-center">
+                <p className="font-medium mb-2">{error}</p>
+                <div className="flex gap-2 justify-center">
+                  <button
+                    type="button"
+                    onClick={signIn}
+                    className="text-xs text-red-800 underline font-semibold hover:text-red-900"
+                  >
+                    Tentar novamente
+                  </button>
+                  {isInIframe && (
+                    <>
+                      <span className="text-red-300">|</span>
+                      <a
+                        href={window.location.href}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs text-blue-700 underline font-semibold hover:text-blue-900"
+                      >
+                        Abrir em nova aba ↗
+                      </a>
+                    </>
+                  )}
+                </div>
+              </div>
             )}
           </CardContent>
         </Card>

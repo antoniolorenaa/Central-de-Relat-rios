@@ -22,15 +22,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const unsubscribe = auth.onAuthStateChanged(async (firebaseUser) => {
-      setUser(firebaseUser);
-      if (firebaseUser) {
-        await syncProfile(firebaseUser);
-      } else {
-        setProfile(null);
+    const unsubscribe = auth.onAuthStateChanged(
+      async (firebaseUser) => {
+        setUser(firebaseUser);
+        if (firebaseUser) {
+          await syncProfile(firebaseUser);
+        } else {
+          setProfile(null);
+          setLoading(false);
+        }
+      },
+      (err: any) => {
+        if (err?.code === 'auth/network-request-failed' || err?.message?.includes('network-request-failed')) {
+          console.warn('Firebase Auth network warning:', err.message);
+        } else {
+          console.warn('Firebase Auth state observer warning:', err);
+        }
         setLoading(false);
       }
-    });
+    );
     return unsubscribe;
   }, []);
 
@@ -171,13 +181,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await signInWithPopup(auth, googleProvider);
       // Se sucesso, o onAuthStateChanged e syncProfile vão lidar com o estado de loading
     } catch (err: any) {
-      console.error(err);
-      if (err.code === 'auth/popup-blocked') {
-        setError('O pop-up de login foi bloqueado. Permita pop-ups para este site e tente novamente.');
-      } else if (err.code === 'auth/cancelled-popup-request' || err.code === 'auth/popup-closed-by-user') {
+      const code = err?.code || '';
+      const message = err?.message || '';
+
+      if (code === 'auth/network-request-failed' || message.includes('network-request-failed')) {
+        console.warn('Firebase Auth network warning:', message);
+        const isInIframe = typeof window !== 'undefined' && window.self !== window.top;
+        if (isInIframe) {
+          setError(
+            'Falha de rede na autenticação (auth/network-request-failed). ' +
+            'Em janelas integradas (iframe), navegadores restringem cookies de autenticação do Google. ' +
+            'Abra o aplicativo em uma nova aba para entrar com sua conta.'
+          );
+        } else {
+          setError(
+            'Não foi possível conectar aos servidores de autenticação do Google (auth/network-request-failed). ' +
+            'Verifique sua conexão ou se algum bloqueador de anúncios/rastreamento está ativo e tente novamente.'
+          );
+        }
+      } else if (code === 'auth/popup-blocked') {
+        console.warn('Firebase Auth popup blocked:', message);
+        setError('O pop-up de login foi bloqueado pelo navegador. Permita pop-ups para este site ou abra o aplicativo em uma nova aba.');
+      } else if (code === 'auth/cancelled-popup-request' || code === 'auth/popup-closed-by-user') {
+        console.warn('Firebase Auth popup closed:', message);
         setError('O login foi cancelado.');
       } else {
-        setError('Não foi possível entrar com sua conta Google. Tente novamente.');
+        console.error('Firebase Auth error:', err);
+        setError(message || 'Não foi possível entrar com sua conta Google. Tente novamente.');
       }
       setLoading(false);
     }
